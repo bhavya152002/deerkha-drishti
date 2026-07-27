@@ -69,6 +69,21 @@ do_status() {
 # Same three conditions deploy.sh uses. `systemctl is-active` alone is not
 # enough: a crash-looping unit reports 'activating', or 'active' briefly between
 # crashes, and would pass a naive check every time.
+# Both failure paths must show WHY. A crash loop is the most likely failure on a
+# first deploy and was previously the one that printed nothing at all.
+dump_logs() {
+  echo
+  echo "  ---- journalctl -u $SVC (last 40) ----------------------------------"
+  journalctl -u $SVC -n 40 --no-pager 2>/dev/null | sed 's/^/  | /'
+  if [ -f "$LOG" ]; then
+    echo "  ---- $LOG (last 40) ----"
+    tail -40 "$LOG" 2>/dev/null | sed 's/^/  | /'
+  else
+    echo "  ---- $LOG does not exist: the process died before logging started ----"
+  fi
+  echo "  --------------------------------------------------------------------"
+}
+
 health_check() {
   local deadline=$(( SECONDS + HEALTH_TIMEOUT )) before
   before="$(systemctl show -p NRestarts --value $SVC 2>/dev/null || echo 0)"
@@ -80,6 +95,7 @@ health_check() {
     if [ "$active" = "active" ]; then
       if [ "${restarts:-0}" -gt "${before:-0}" ]; then
         err "service is restart-looping (NRestarts ${before} -> ${restarts})"
+        dump_logs
         return 1
       fi
       # A fresh heartbeat means the pipeline loaded its config, opened the
@@ -93,7 +109,7 @@ health_check() {
     sleep 6
   done
   err "did not become healthy within ${HEALTH_TIMEOUT}s"
-  journalctl -u $SVC -n 25 --no-pager 2>/dev/null | sed 's/^/      | /'
+  dump_logs
   return 1
 }
 
@@ -102,7 +118,12 @@ rollback() {
   local prev
   # sed -n 2p = the second most recent, i.e. the one before what is live now.
   prev="$(ls -1dt "$ROOT"/releases/*/ 2>/dev/null | sed -n 2p | xargs -r basename)"
-  if [ -z "$prev" ]; then err "no previous release to roll back to"; return 1; fi
+  if [ -z "$prev" ]; then
+    warn "no previous release to roll back to -- expected on a FIRST deploy."
+    warn "the service is left stopped rather than crash-looping; fix, then re-run."
+    systemctl stop $SVC 2>/dev/null
+    return 1
+  fi
   warn "rolling back to $prev"
   ln -sfn "$ROOT/releases/$prev" "$ROOT/current.new" || return 1
   mv -Tf "$ROOT/current.new" "$ROOT/current" || return 1
