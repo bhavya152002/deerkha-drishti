@@ -1,0 +1,14 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.10
+pydantic==2.10.4
+jinja2==3.1.5
+python-multipart==0.0.20
+python-dotenv==1.0.1
+itsdangerous==2.2.0
+httpx==0.28.1
+
+# Test-only, but not optional in practice: server/tests/test_route_auth.py is
+# what stops an unguarded route or a re-added public static mount from shipping.
+pytest==8.3.4

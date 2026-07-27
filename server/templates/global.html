@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% set active = 'global' %}
+{% block title %}{{ device_id }} · Global settings{% endblock %}
+{% block content %}
+<h1>Global settings</h1>
+<p class="sub">Night window, cooldowns, recording, confirm windows, cleanup, cadence and toggles. Most apply live; detection resolution requires a device restart.</p>
+<div class="card">
+  <div id="form"></div>
+  <div class="row end" style="margin-top:16px"><button onclick="save()">Save global settings</button></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>Telegram bot token — fleet-wide</h2>
+  <p class="sub">Used by <strong>every</strong> device that has no override below. Saving here
+  rotates the token for the whole fleet; each box picks it up on its next config poll, with no
+  restart and no SSH. The token is never displayed again once saved.</p>
+  <div class="grid cols-3">
+    <div>
+      <label>Bot token</label>
+      <input id="fleet_token" type="password" autocomplete="new-password" placeholder="loading…">
+    </div>
+    <div>
+      <label>&nbsp;</label>
+      <div><label class="sub"><input type="checkbox" id="fleet_token_clear"> clear the fleet token</label></div>
+    </div>
+  </div>
+  <div class="row end" style="margin-top:16px"><button onclick="saveFleet()">Save fleet token</button></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+const SECTIONS = [
+  ["Night window", [["roi_start_hour","Start hour","number"],["roi_end_hour","End hour","number"],["roi_end_minute","End minute","number"]]],
+  ["Resolution (restart)", [["detection_res_w","Detection W","number"],["detection_res_h","Detection H","number"],["polygons_drawn_res_w","ROI drawn W","number"],["polygons_drawn_res_h","ROI drawn H","number"],["motion_video_res_w","Motion vid W (blank=native)","number"],["motion_video_res_h","Motion vid H","number"]]],
+  ["Cooldowns", [["cooldown_specific","Specific (s)","number"],["cooldown_generic","Generic (s)","number"],["motion_close_delay","Motion close delay (s)","number"]]],
+  ["Recording", [["motion_min_clip_duration","Motion min clip (s)","number"],["motion_max_clip_duration","Motion max clip (s)","number"],["animal_rotate_sec","Animal rotate (s)","number"],["fps","FPS (restart)","number"]]],
+  ["Inference", [["inference_target_fps","Inference FPS per camera","number"]]],
+  ["Confirm windows", [["min_confirm_frames","Min confirm frames","number"],["buffer_window","Buffer window","number"],["animal_min_confirm_frames","Animal min confirm","number"],["animal_buffer_window","Animal buffer","number"],["min_bbox_ratio","Min bbox ratio","number"]]],
+  ["Motion default", [["motion_default_min_frames","min_frames","number"],["motion_default_threshold","threshold","number"],["motion_default_kernel_w","kernel w","number"],["motion_default_kernel_h","kernel h","number"],["motion_default_area_min","area_min","number"]]],
+  ["Cleanup & cadence", [["cleanup_days_to_keep","Days to keep","number"],["cleanup_low_space_free_percent","Low-space free %","number"],["heartbeat_interval_sec","Heartbeat (s)","number"],["poll_interval_sec","Config poll (s)","number"]]],
+  ["Toggles & telegram", [["supabase_signal_enabled","Supabase logging","bool"],["detailed_telegram_msg","Detailed telegram","bool"],["send_fallback_telegram","Send fallback telegram","bool"],["ignore_zones_enabled","Ignore zones enabled","bool"],["animal_supabase_trigger","Animal supabase trigger","bool"],["telegram_chat_id","Telegram chat id","text"],["telegram_bot_token","Bot token — this device only (blank = use fleet token)","secret"]]],
+];
+let ALL = [];
+async function load() {
+  const g = await apiGet(`/api/admin/devices/${DEV}/global`);
+  ALL = [];
+  document.getElementById("form").innerHTML = SECTIONS.map(([title, fields]) => {
+    const inner = fields.map(([k,lbl,t]) => {
+      ALL.push([k,t]);
+      if (t === "bool") return `<div><label>${lbl}</label><select id="f_${k}"><option value="true" ${g[k]?'selected':''}>true</option><option value="false" ${!g[k]?'selected':''}>false</option></select></div>`;
+      // A secret is never rendered back -- the API returns only "<field>_set".
+      // The input therefore starts blank on every load, and a blank submit is
+      // treated as "no change" so that saving an unrelated field on this page
+      // cannot silently wipe the token.
+      if (t === "secret") {
+        const isSet = g[k + "_set"];
+        return `<div><label>${lbl}</label>`
+          + `<input id="f_${k}" type="password" autocomplete="new-password" placeholder="${isSet?'set — leave blank to keep':'not set'}">`
+          + (isSet ? `<div><label class="sub"><input type="checkbox" id="c_${k}"> clear this override</label></div>` : '')
+          + `</div>`;
+      }
+      return `<div><label>${lbl}</label><input id="f_${k}" type="${t}" ${t==='number'?'step=any':''} value="${esc(g[k] ?? '')}"></div>`;
+    }).join("");
+    return `<h2>${title}</h2><div class="grid cols-3">${inner}</div>`;
+  }).join("");
+}
+async function save() {
+  const body = {};
+  ALL.forEach(([k,t]) => {
+    const el = document.getElementById("f_"+k); let v = el.value;
+    if (t === "secret") {
+      const c = document.getElementById("c_"+k);
+      if (c && c.checked) body[k+"__clear"] = true;
+      else if (v !== "") body[k] = v;
+      return;                       // omit entirely when blank
+    }
+    if (t === "number") v = v === "" ? null : parseFloat(v);
+    else if (t === "bool") v = el.value === "true";
+    body[k] = v;
+  });
+  await saved(apiPut(`/api/admin/devices/${DEV}/global`, body));
+  load();
+}
+
+async function loadFleet() {
+  const f = await apiGet(`/api/admin/fleet`);
+  const el = document.getElementById("fleet_token");
+  el.value = "";
+  el.placeholder = f.telegram_bot_token_set ? "set — leave blank to keep" : "not set";
+  document.getElementById("fleet_token_clear").checked = false;
+}
+async function saveFleet() {
+  const body = {};
+  const v = document.getElementById("fleet_token").value;
+  if (document.getElementById("fleet_token_clear").checked) body.telegram_bot_token__clear = true;
+  else if (v !== "") body.telegram_bot_token = v;
+  else return saved(Promise.resolve({ok:true, devices_bumped:0}));   // nothing to do
+  await saved(apiPut(`/api/admin/fleet`, body));
+  loadFleet();
+}
+
+load();
+loadFleet();
+</script>
+{% endblock %}

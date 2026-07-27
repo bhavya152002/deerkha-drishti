@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly Deerkha Drishti database backup
+
+[Timer]
+# 02:00 UTC -- an hour BEFORE retention runs, so the night's backup captures
+# the data as it was before anything was pruned. If retention ever deletes
+# something it should not have, the dump taken an hour earlier still has it.
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

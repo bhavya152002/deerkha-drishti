@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% set active = 'roi' %}
+{% block title %}{{ device_id }} · ROI editor{% endblock %}
+{% block content %}
+<h1>ROI / Ignore-zone editor</h1>
+<p class="sub">
+  Draw the <b>detection ROI</b> (at 1080×720, one polygon) and <b>ignore zones</b>
+  (at native camera resolution, multiple polygons). Left-click to add points,
+  drag points to move, right-click a point to delete it. These apply live on the next poll.
+</p>
+
+<div class="card">
+  <div class="row">
+    <div><label>Camera</label><select id="cam_sel" onchange="pickCam()"></select></div>
+    <div>
+      <label>Layer</label>
+      <select id="layer_sel" onchange="RoiEditor.setLayer(this.value)">
+        <option value="roi">Detection ROI (1080×720)</option>
+        <option value="ignore">Ignore zones (native res)</option>
+      </select>
+    </div>
+    <div class="spacer"></div>
+    <div style="align-self:end">
+      <label>Backdrop</label>
+      <button class="ghost" onclick="grabLive()">Grab live frame</button>
+    </div>
+    <div>
+      <label>Reference frame (fallback)</label>
+      <input type="file" id="ref_file" accept="image/*" onchange="uploadRef()">
+    </div>
+  </div>
+  <p class="muted" id="layer_info" style="margin:8px 0 0"></p>
+  <p class="muted" style="margin:4px 0 0">Trace zones over the real camera view: <b>Grab live frame</b> pulls the current
+    image from the camera. If the stream is offline, upload a still instead.</p>
+</div>
+
+<div class="card">
+  <canvas id="roi_canvas" width="960" height="640"></canvas>
+  <div class="row" style="margin-top:12px">
+    <button id="btn_newpoly" class="ghost" onclick="RoiEditor.newPolygon()" style="display:none">New polygon</button>
+    <button class="ghost" onclick="RoiEditor.clearLayer()">Clear layer</button>
+    <div class="spacer"></div>
+    <button onclick="RoiEditor.save()">Save layer</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/roi_editor.js"></script>
+<script>
+const DEV = "{{ device_id }}";
+let CAMS = [];
+async function boot() {
+  RoiEditor.init();
+  CAMS = await apiGet(`/api/admin/devices/${DEV}/cameras`);
+  const sel = document.getElementById("cam_sel");
+  sel.innerHTML = CAMS.map((c, i) => `<option value="${i}">${esc(c.cam_name)}</option>`).join("");
+  if (CAMS.length) RoiEditor.attach(CAMS[0]);
+}
+function pickCam() {
+  const i = parseInt(document.getElementById("cam_sel").value);
+  document.getElementById("layer_sel").value = "roi";
+  RoiEditor.setLayer("roi");
+  RoiEditor.attach(CAMS[i]);
+}
+function grabLive() {
+  const i = parseInt(document.getElementById("cam_sel").value);
+  const cam = CAMS[i];
+  if (!cam) return;
+  // Clean (unannotated) frame so overlays don't obscure the scene while tracing.
+  // Cache-bust so re-grabs actually fetch a fresh frame. Cookies ride along, so
+  // the admin-guarded proxy authorizes it.
+  // Explicit full resolution: the proxy now defaults to small grid tiles, but
+  // ROI polygons are drawn against this image and must be traced accurately.
+  const url = `/api/live/${DEV}/${cam.cam_index}/snapshot.jpg?view=clean&w=1280&q=85&t=${Date.now()}`;
+  const probe = new Image();
+  probe.onload = () => { RoiEditor.reloadImage(url); toast("Live frame loaded"); };
+  probe.onerror = () => toast("Camera unreachable — upload a still instead", true);
+  probe.src = url;
+}
+async function uploadRef() {
+  const i = parseInt(document.getElementById("cam_sel").value);
+  const f = document.getElementById("ref_file").files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  const r = await fetch(`/api/admin/cameras/${CAMS[i].id}/reference-frame`, { method: "POST", body: fd });
+  if (!r.ok) return toast("upload failed", true);
+  const res = await r.json();
+  CAMS[i].reference_frame_url = res.reference_frame_url;
+  RoiEditor.reloadImage(res.reference_frame_url);
+  toast("Reference frame uploaded");
+}
+boot();
+</script>
+{% endblock %}

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% set active = 'device' %}
+{% block title %}{{ device_id }} · Status{% endblock %}
+{% block content %}
+<h1>{{ device_id }}</h1>
+<p class="sub">Live status, device-level paths, and actions.</p>
+
+<div class="card">
+  <div class="row">
+    <h2 style="margin:0">Live status</h2>
+    <div class="spacer"></div>
+    <span id="last_hb" class="muted"></span>
+  </div>
+  <div id="status"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Actions</h2>
+  <div class="row">
+    <button class="warn" onclick="forceRestart()">Force restart</button>
+    <button class="ghost" onclick="rotateToken()">Rotate device token</button>
+    <a class="btn ghost" href="#" onclick="showPreview();return false;">Preview config JSON</a>
+  </div>
+  <p class="muted" id="token_out" style="margin-top:10px"></p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Device paths &amp; models <span class="badge warn">restart to apply</span></h2>
+  <div id="devform"></div>
+  <div class="row end" style="margin-top:12px"><button onclick="saveDevice()">Save device</button></div>
+</div>
+
+<div class="card" id="preview_card" style="display:none">
+  <h2 style="margin-top:0">Assembled config (what the Jetson receives)</h2>
+  <pre class="json" id="preview"></pre>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+let deviceRow = null;
+
+async function loadStatus() {
+  const st = await apiGet(`/api/admin/devices/${DEV}/status/latest`);
+  const box = document.getElementById("status");
+  document.getElementById("last_hb").textContent = st ? "last heartbeat " + ago(st.received_at) : "no heartbeat yet";
+  if (!st) { box.innerHTML = "<p class='muted'>No heartbeat received yet.</p>"; return; }
+  const cams = (st.per_camera || []).map(c => {
+    const alive = c.thread_alive && (c.last_frame_age_sec == null || c.last_frame_age_sec < 15);
+    return `<tr>
+      <td>${esc(c.cam_name || c.name)}</td>
+      <td><span class="badge ${alive ? 'ok' : 'crit'}">${alive ? 'alive' : 'down'}</span></td>
+      <td>${c.power_mode ? '⚡ PWR' : 'idle'}</td>
+      <td>${c.last_frame_age_sec != null ? c.last_frame_age_sec.toFixed(1) + 's' : '-'}</td>
+      <td>${c.pipeline_error ? '<span class="badge crit">error</span>' : 'ok'}</td>
+      <td>${c.motion_hits ?? '-'}</td>
+    </tr>`;
+  }).join("");
+  box.innerHTML = `
+    <div class="row" style="margin:6px 0 14px">
+      <span class="badge ${st.pending_restart ? 'warn' : 'ok'}">${st.pending_restart ? 'restart pending' : 'up to date'}</span>
+      <span class="muted">cfg <span class="pill">${esc(st.config_version || '-')}</span></span>
+      <span class="muted">uptime ${st.app_uptime_sec ? Math.round(st.app_uptime_sec/3600)+'h' : '-'}</span>
+      <span class="muted">disk ${st.disk_free_percent != null ? st.disk_free_percent.toFixed(0)+'%' : '-'}</span>
+    </div>
+    <table><thead><tr><th>Camera</th><th>Thread</th><th>Mode</th><th>Frame age</th><th>Pipeline</th><th>Motion hits</th></tr></thead>
+    <tbody>${cams || '<tr><td colspan=6 class=muted>no camera data</td></tr>'}</tbody></table>`;
+}
+
+async function loadDevice() {
+  const list = await apiGet("/api/admin/devices");
+  deviceRow = list.find(d => d.device_id === DEV) || {};
+  const f = [
+    ["display_name", "Display name", "text"],
+    ["storage_root", "Storage root", "text"],
+    ["rfdetr_engine_path", "RF-DETR engine path", "text"],
+    ["clip_engine_path", "CLIP image engine path", "text"],
+    ["clip2_checkpoint", "CLIP text checkpoint (.pt)", "text"],
+    ["clip2_model_dir", "CLIP model dir", "text"],
+    ["clip_img_input_size", "CLIP image input size", "number"],
+    ["rf_predict_threshold", "RF predict floor", "number"],
+    ["rf_nms_iou", "RF NMS IoU", "number"],
+    ["tailscale_ip", "Tailscale IP (for media links)", "text"],
+  ];
+  const full = await apiGet(`/api/admin/devices/${DEV}/preview-config`);
+  const p = full.paths;
+  const vals = {
+    display_name: deviceRow.display_name, storage_root: p.storage_root,
+    rfdetr_engine_path: p.rfdetr_engine_path, clip_engine_path: p.clip_engine_path,
+    clip2_checkpoint: p.clip2_checkpoint, clip2_model_dir: p.clip2_model_dir,
+    clip_img_input_size: p.clip_img_input_size, rf_predict_threshold: p.rf_predict_threshold,
+    rf_nms_iou: p.rf_nms_iou, tailscale_ip: deviceRow.tailscale_ip,
+  };
+  document.getElementById("devform").innerHTML =
+    `<div class="grid cols-2">` + f.map(([k, lbl, t]) =>
+      `<div><label>${lbl}</label><input id="dev_${k}" type="${t}" value="${esc(vals[k] ?? '')}" ${t==='number'?'step=any':''}></div>`
+    ).join("") + `</div>`;
+}
+async function saveDevice() {
+  const keys = ["display_name","storage_root","rfdetr_engine_path","clip_engine_path","clip2_checkpoint","clip2_model_dir","clip_img_input_size","rf_predict_threshold","rf_nms_iou","tailscale_ip"];
+  const body = {};
+  keys.forEach(k => {
+    const el = document.getElementById("dev_" + k); let v = el.value;
+    if (el.type === "number") v = v === "" ? null : parseFloat(v);
+    body[k] = v;
+  });
+  await saved(apiPut(`/api/admin/devices/${DEV}`, body), "Device saved");
+  loadDevice();
+}
+async function forceRestart() {
+  if (!confirm("Signal this device to restart on its next poll?")) return;
+  await saved(apiPost(`/api/admin/devices/${DEV}/restart`), "Restart signalled");
+  loadStatus();
+}
+async function rotateToken() {
+  if (!confirm("Rotate the device token? The Jetson must be updated with the new token or it will stop syncing.")) return;
+  const res = await saved(apiPost(`/api/admin/devices/${DEV}/rotate-token`), "Token rotated");
+  document.getElementById("token_out").textContent = "New device token: " + res.device_token;
+}
+async function showPreview() {
+  const blob = await apiGet(`/api/admin/devices/${DEV}/preview-config`);
+  document.getElementById("preview_card").style.display = "block";
+  document.getElementById("preview").textContent = JSON.stringify(blob, null, 2);
+}
+loadStatus(); loadDevice();
+setInterval(loadStatus, 10000);
+</script>
+{% endblock %}

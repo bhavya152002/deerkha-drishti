@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+#
+# provision.sh -- prepare ONE fresh Jetson Orin Nano to join the fleet.
+# Run once per box, ON the box, as a sudo-capable user:
+#
+#   scp deploy/provision.sh deerkha@<tailscale-ip>:/tmp/
+#   ssh deerkha@<tailscale-ip> 'sudo bash /tmp/provision.sh'
+#
+# After this, the box has the directory layout, service user, venv and systemd
+# unit -- but NO code and NO identity yet. Then, from the office PC:
+#
+#   1. write /etc/deerkha/device.env on the box (device id + token + server URL)
+#   2. ./deploy/push-models.sh <device_id>      # TensorRT engines + sounds
+#   3. ./deploy/deploy.sh <tag> --only <device_id>
+#
+# Everything this script creates is IDENTICAL on every box. The only per-device
+# artefacts are /etc/deerkha/device.env and the models built for this SKU.
+
+set -euo pipefail
+
+ROOT=/opt/deerkha
+STATE=/var/lib/deerkha
+LOGS=/var/log/deerkha
+STORAGE="${STORAGE_ROOT:-/mnt/data/video_storage}"
+SVC_USER=deerkha
+
+[ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
+
+echo "==> service user"
+if ! id -u "$SVC_USER" >/dev/null 2>&1; then
+  useradd --system --create-home --home-dir /home/$SVC_USER --shell /bin/bash "$SVC_USER"
+fi
+# video/render: NVDEC + GPU access. dialout: the USB relay on /dev/ttyUSB0.
+# audio: deterrence playback. Without these the pipeline starts and then fails
+# in confusing ways at the first camera or the first deterrence trigger.
+usermod -aG video,render,dialout,audio "$SVC_USER"
+
+echo "==> directories"
+install -d -o "$SVC_USER" -g "$SVC_USER" "$ROOT" "$ROOT/releases" "$ROOT/models" "$ROOT/sounds"
+install -d -o "$SVC_USER" -g "$SVC_USER" "$STATE" "$LOGS"
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 750 /etc/deerkha
+if [ ! -d "$STORAGE" ]; then
+  echo "    NOTE: $STORAGE does not exist yet."
+  echo "    Mount the NVMe there BEFORE first run -- recording to the eMMC/SD"
+  echo "    card will fill it and wear it out within a year."
+  install -d -o "$SVC_USER" -g "$SVC_USER" "$STORAGE"
+else
+  chown "$SVC_USER:$SVC_USER" "$STORAGE"
+fi
+
+echo "==> python venv"
+if [ ! -x "$ROOT/venv/bin/python3" ]; then
+  apt-get update -qq
+  apt-get install -y -qq python3-venv python3-dev
+  # --system-site-packages is REQUIRED on JetPack: tensorrt, cv2 (with the
+  # CUDA/GStreamer build) and torch come from the system image and cannot be
+  # pip-installed into an isolated venv.
+  python3 -m venv --system-site-packages "$ROOT/venv"
+  chown -R "$SVC_USER:$SVC_USER" "$ROOT/venv"
+fi
+"$ROOT/venv/bin/pip" install -q --upgrade pip
+# Only packages that are NOT part of JetPack. tensorrt, cv2 (the CUDA/GStreamer
+# build), torch and gi come from the system image via --system-site-packages and
+# must never be pip-installed over.
+#
+# python-dotenv and open_clip_torch are imported by edge/main.py -- omitting
+# them means the pipeline dies at import and systemd crash-loops the unit with
+# a bare ModuleNotFoundError.
+"$ROOT/venv/bin/pip" install -q \
+    requests sqlalchemy psycopg2-binary numpy pygame pyserial \
+    python-dotenv open_clip_torch pillow
+
+echo "==> sudoers (service restart only)"
+# deploy.sh restarts the unit over ssh as the service user. Scope the grant to
+# exactly that -- not blanket NOPASSWD.
+cat > /etc/sudoers.d/deerkha <<EOF
+$SVC_USER ALL=(root) NOPASSWD: /bin/systemctl restart deerkha-drishti, /bin/systemctl stop deerkha-drishti, /bin/systemctl start deerkha-drishti
+EOF
+chmod 440 /etc/sudoers.d/deerkha
+
+echo "==> systemd unit"
+if [ -f /tmp/deerkha-drishti.service ]; then
+  install -m 644 /tmp/deerkha-drishti.service /etc/systemd/system/deerkha-drishti.service
+  systemctl daemon-reload
+  systemctl enable deerkha-drishti
+  echo "    enabled (not started -- no code deployed yet)"
+else
+  echo "    !! deploy/deerkha-drishti.service not found at /tmp/. Copy it and re-run:"
+  echo "       scp deploy/deerkha-drishti.service $SVC_USER@<ip>:/tmp/"
+fi
+
+echo "==> log rotation"
+cat > /etc/logrotate.d/deerkha <<EOF
+$LOGS/*.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+
+echo "==> device identity template"
+if [ ! -f /etc/deerkha/device.env ]; then
+  cat > /etc/deerkha/device.env <<'EOF'
+# The ONLY per-device file on this box. Everything else -- cameras, RTSP
+# credentials, ROI, classes, prompts, thresholds, retention, Telegram bot token
+# and chat id -- comes from the server. A deploy never reads or writes this file.
+JETSON_DEVICE_ID=CHANGE_ME
+CONFIG_API_TOKEN=CHANGE_ME
+
+# The server's Tailscale name or IP. Prefer the MagicDNS name -- if the server
+# ever moves, an IP here means editing this file on every box in the fleet.
+# Verify it resolves ON THIS BOX before deploying:  getent hosts deerkha-vps
+CONFIG_SERVER_URL=http://CHANGE_ME:8000
+
+# Until the egress rework lands, the edge still writes detections to Postgres
+# directly, so this fleet-wide secret must live here. Remove it once alerts are
+# routed via the server.
+DATABASE_URL=
+
+# The Telegram bot token and chat id normally come FROM THE SERVER, in the
+# config blob -- set them under Global settings on the dashboard, not here, so
+# that rotating them is one edit for the whole fleet instead of an SSH session
+# per box. A box with neither a server value nor these still starts: it logs
+# alerts and sends nothing until its first successful config poll.
+#
+# Leave these blank. Fill them ONLY as a break-glass fallback for a box that
+# must alert before it can reach the server.
+# TELEGRAM_BOT_TOKEN=
+# TELEGRAM_CHAT_ID=
+EOF
+  chmod 600 /etc/deerkha/device.env
+  chown "$SVC_USER:$SVC_USER" /etc/deerkha/device.env
+  echo "    created /etc/deerkha/device.env -- FILL IT IN before deploying"
+else
+  echo "    /etc/deerkha/device.env already exists, left untouched"
+fi
+
+cat <<EOF
+
+Provisioned. Next:
+  1. edit /etc/deerkha/device.env   (device id + token from the dashboard)
+  2. from the office PC:  ./deploy/push-models.sh <device_id>
+  3. from the office PC:  ./deploy/deploy.sh <tag> --only <device_id>
+
+Check the NVMe is mounted at $STORAGE first:  df -h $STORAGE
+EOF

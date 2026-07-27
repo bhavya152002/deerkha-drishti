@@ -1,0 +1,88 @@
+# Deerkha Drishti server (FastAPI + uvicorn), running on the VPS behind nginx.
+# Install: /etc/systemd/system/deerkha-server.service
+
+[Unit]
+Description=Deerkha Drishti office server
+After=network-online.target postgresql.service tailscaled.service
+Wants=network-online.target
+# Postgres is now on this same host, so the app genuinely depends on it. It
+# still starts without one (healthz reports 503 and devices run on cached
+# config), but ordering avoids a pointless crash-and-restart on every boot.
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=deerkha
+Group=deerkha
+WorkingDirectory=/opt/deerkha-server/current
+
+# Secrets and config. NOT in git (.env is gitignored), so this file will not
+# arrive with the code -- create it by hand. settings.py raises at import if
+# DATABASE_URL / SESSION_SECRET / ADMIN_USERNAME / ADMIN_PASSWORD are missing,
+# which is deliberate: a server that will not start is loud, one with a
+# forgeable admin cookie is silent.
+EnvironmentFile=/etc/deerkha-server/server.env
+
+ExecStart=/opt/deerkha-server/venv/bin/python -m uvicorn app.main:app \
+    --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='127.0.0.1'
+
+# Two different front doors reach this process, which is why it binds 0.0.0.0:
+#   * the DASHBOARD arrives via nginx, which terminates TLS on 443 and proxies
+#     to 127.0.0.1:8000 from this same host;
+#   * the DEVICE API and live-view proxy arrive from the Jetsons over
+#     Tailscale, hitting this box's tailnet address.
+#
+# Loopback-only would silently break every device: config polls, heartbeats and
+# acks all stop, and the fleet quietly runs on cached config until someone
+# notices the dashboard has gone stale.
+#
+# 0.0.0.0 is safe here ONLY because ufw defaults to deny-incoming on the public
+# NIC (install-server.sh sets this, and opens nothing but SSH). Tailscale
+# traffic is unaffected because tailscaled's ts-input chain accepts tailnet
+# packets before ufw is consulted. If you ever disable ufw, this port is
+# published to the internet -- it is bearer-token protected, but that is one
+# lock, not two. Verify after any firewall change:
+#     sudo ufw status verbose         # 8000 must NOT appear as allowed
+#     curl --connect-timeout 5 http://<public-ip>:8000/healthz   # must time out
+#
+# Binding to the tailnet IP instead would be tighter, but the unit then fails
+# to start whenever tailscaled comes up after it -- a worse failure mode on a
+# box you cannot walk to.
+
+# Single worker is deliberate. Steady state is well under 1 req/s at 7 devices;
+# the in-process config cache and the live-view snapshot cache are per-process,
+# so extra workers cost cache hit rate and buy nothing measurable.
+
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+# Uploaded ROI reference frames. systemd creates /var/lib/deerkha-server,
+# chowns it, and implicitly adds it to ReadWritePaths.
+# DO NOT REMOVE while "simplifying" the hardening below: settings.py creates
+# this directory AT IMPORT, so without it the service dies before FastAPI or
+# logging exist, with a bare traceback and no context.
+StateDirectory=deerkha-server
+Environment=DD_SERVER_DATA_DIR=/var/lib/deerkha-server
+Environment=PYTHONUNBUFFERED=1
+
+# Hardening. This process talks to loopback Postgres and to the tailnet; it has
+# no business writing anywhere except its state directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deerkha-server
+
+[Install]
+WantedBy=multi-user.target

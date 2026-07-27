@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% set active = 'clip' %}
+{% block title %}{{ device_id }} · CLIP prompts{% endblock %}
+{% block content %}
+<h1>CLIP prompts &amp; verification</h1>
+<p class="sub">
+  Positive prompts, fallback groups, cross-species mapping (per class), the global
+  distractor list, and CLIP scalar knobs. <span class="badge warn">Editing prompts or distractors
+  triggers a text-feature cache rebuild → device restart flag.</span>
+</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Scalars &amp; distractors</h2>
+  <div id="scalars" class="grid cols-3"></div>
+  <label style="margin-top:12px">Distractors (one per line)</label>
+  <textarea id="distractors" style="min-height:120px"></textarea>
+  <div class="row end" style="margin-top:12px"><button onclick="saveDistractors()">Save distractors &amp; scalars</button></div>
+</div>
+
+<div id="prompts"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+const SCALARS = [
+  ["fallback_min_logit","Fallback min logit"],["bbox_pad","Bbox pad"],["min_crop_w","Min crop W"],
+  ["min_crop_h","Min crop H"],["min_rf_conf","Min RF conf"],["clip_cooldown","CLIP cooldown (s)"],
+];
+async function load() {
+  const d = await apiGet(`/api/admin/devices/${DEV}/clip-distractors`);
+  document.getElementById("scalars").innerHTML = SCALARS.map(([k,lbl]) =>
+    `<div><label>${lbl}</label><input id="s_${k}" type="number" step="any" value="${d[k]}"></div>`).join("") +
+    `<div><label>Keep text tower resident</label><select id="s_keep"><option value="true" ${d.keep_text_tower_resident?'selected':''}>true</option><option value="false" ${!d.keep_text_tower_resident?'selected':''}>false</option></select></div>`;
+  document.getElementById("distractors").value = (d.distractors || []).join("\n");
+
+  const prompts = await apiGet(`/api/admin/devices/${DEV}/clip-prompts`);
+  document.getElementById("prompts").innerHTML = prompts.map(renderPrompt).join("");
+}
+function renderPrompt(p) {
+  const fb = p.fallbacks || {};
+  const fbText = Object.entries(fb).map(([k,v]) => `${k}: ${v.join(" | ")}`).join("\n");
+  return `<div class="card" data-cls="${esc(p.class_name)}">
+    <div class="row"><strong>${esc(p.class_name)}</strong>
+      <div class="spacer"></div>
+      <button onclick="savePrompt('${esc(p.class_name)}')">Save</button></div>
+    <label>Positive prompts (one per line)</label>
+    <textarea id="pp_${esc(p.class_name)}" style="min-height:100px">${esc((p.positive_prompts||[]).join("\n"))}</textarea>
+    <div class="grid cols-2">
+      <div><label>Fallbacks (label: prompt | prompt)</label>
+        <textarea id="fb_${esc(p.class_name)}">${esc(fbText)}</textarea></div>
+      <div><label>Cross-species label</label>
+        <input id="cs_${esc(p.class_name)}" value="${esc(p.cross_species||'')}"></div>
+    </div>
+  </div>`;
+}
+async function saveDistractors() {
+  const body = {};
+  SCALARS.forEach(([k]) => body[k] = parseFloat(document.getElementById("s_"+k).value));
+  body.keep_text_tower_resident = document.getElementById("s_keep").value === "true";
+  body.distractors = document.getElementById("distractors").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  await saved(apiPut(`/api/admin/devices/${DEV}/clip-distractors`, body), "Saved (restart pending)");
+}
+async function savePrompt(cls) {
+  const pp = document.getElementById("pp_"+cls).value.split("\n").map(s=>s).filter(s=>s.trim());
+  const fbRaw = document.getElementById("fb_"+cls).value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const fallbacks = {};
+  fbRaw.forEach(line => {
+    const idx = line.indexOf(":");
+    if (idx > 0) fallbacks[line.slice(0,idx).trim()] = line.slice(idx+1).split("|").map(s=>s.trim()).filter(Boolean);
+  });
+  const cs = document.getElementById("cs_"+cls).value.trim() || null;
+  await saved(apiPut(`/api/admin/devices/${DEV}/clip-prompts/${encodeURIComponent(cls)}`,
+    { positive_prompts: pp, fallbacks, cross_species: cs }), "Saved (restart pending)");
+}
+load();
+</script>
+{% endblock %}

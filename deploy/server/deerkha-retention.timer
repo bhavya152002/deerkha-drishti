@@ -1,0 +1,19 @@
+[Unit]
+Description=Run Deerkha Drishti retention nightly
+# Verify it is actually scheduled after install:
+#   systemctl list-timers deerkha-retention
+# and that it actually ran:
+#   journalctl -u deerkha-retention --since yesterday
+
+[Timer]
+# 03:00 UTC. The cluster is pinned to UTC (see install-server.sh) precisely so
+# timestamps are unambiguous; that is 08:30 IST, comfortably outside the night
+# detection window when the edge is busiest.
+OnCalendar=*-*-* 03:00:00
+# Run on next boot if the VPS was down at 03:00. Without this a reboot during
+# the window silently skips a night, and the skips are invisible.
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

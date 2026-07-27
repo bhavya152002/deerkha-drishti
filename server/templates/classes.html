@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% set active = 'classes' %}
+{% block title %}{{ device_id }} · Class settings{% endblock %}
+{% block content %}
+<h1>Class settings</h1>
+<p class="sub">Per-class RF-DETR confidence threshold, box color (BGR), CLIP minimum logit, and CLIP alert membership. Applies live.</p>
+<div class="card">
+  <table>
+    <thead><tr><th>Class</th><th>RF thresh</th><th>Color (B/G/R)</th><th></th><th>CLIP min logit</th><th>CLIP alert</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+function bgrToHex(b,g,r){ return "#" + [r,g,b].map(x=>Math.max(0,Math.min(255,x|0)).toString(16).padStart(2,"0")).join(""); }
+async function load() {
+  const rows = await apiGet(`/api/admin/devices/${DEV}/class-settings`);
+  document.getElementById("rows").innerHTML = rows.map(r => {
+    const hex = bgrToHex(r.color_b, r.color_g, r.color_r);
+    return `<tr data-cls="${esc(r.class_name)}">
+      <td><strong>${esc(r.class_name)}</strong>${r.rf_class_id!=null?` <span class="pill">id ${r.rf_class_id}</span>`:''}</td>
+      <td><input style="width:90px" type="number" step="any" id="th_${esc(r.class_name)}" value="${r.rf_thresh}"></td>
+      <td><input style="width:64px" type="number" id="cb_${esc(r.class_name)}" value="${r.color_b}">
+          <input style="width:64px" type="number" id="cg_${esc(r.class_name)}" value="${r.color_g}">
+          <input style="width:64px" type="number" id="cr_${esc(r.class_name)}" value="${r.color_r}"></td>
+      <td><span class="swatch" style="background:${hex}"></span></td>
+      <td><input style="width:90px" type="number" step="any" id="cl_${esc(r.class_name)}" value="${r.clip_min_logit ?? ''}" placeholder="n/a"></td>
+      <td><input type="checkbox" style="width:auto" id="ac_${esc(r.class_name)}" ${r.is_clip_alert_class?'checked':''}></td>
+      <td><button onclick="save('${esc(r.class_name)}')">Save</button></td>
+    </tr>`;
+  }).join("");
+}
+async function save(cls) {
+  const g = id => document.getElementById(id + "_" + cls);
+  const cl = g("cl").value;
+  const body = {
+    rf_thresh: parseFloat(g("th").value),
+    color_b: parseInt(g("cb").value), color_g: parseInt(g("cg").value), color_r: parseInt(g("cr").value),
+    clip_min_logit: cl === "" ? null : parseFloat(cl),
+    is_clip_alert_class: g("ac").checked,
+  };
+  await saved(apiPut(`/api/admin/devices/${DEV}/class-settings/${encodeURIComponent(cls)}`, body));
+  load();
+}
+load();
+</script>
+{% endblock %}

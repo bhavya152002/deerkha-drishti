@@ -1,0 +1,41 @@
+# Nightly database + disk housekeeping. Replaces the Windows Scheduled Task.
+# Paired with deerkha-retention.timer. Install both to /etc/systemd/system/.
+#
+# THIS IS LOAD-BEARING. Without it cfg_device_status grows ~12.6 MB/day at 7
+# devices and nothing ever reads it beyond the newest row per device. It also
+# prunes detections, deletes orphaned reference frames, and re-checks every
+# device's stored config_version -- which is what makes it safe for the device
+# API to serve the stored version instead of reassembling on every poll.
+
+[Unit]
+Description=Deerkha Drishti retention and housekeeping
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=deerkha
+Group=deerkha
+WorkingDirectory=/opt/deerkha-server/current
+EnvironmentFile=/etc/deerkha-server/server.env
+
+ExecStart=/opt/deerkha-server/venv/bin/python -m app.jobs.retention
+
+# StateDirectory is REQUIRED here too, and it is easy to miss.
+# `python -m app.jobs.retention` imports app.settings, which creates the
+# reference-frame directory at import. Harden with ProtectSystem=strict and
+# omit this, and the job dies at import EVERY NIGHT, silently, while the
+# database grows unchecked. The job also deletes orphaned frame files, so it
+# needs write access here regardless.
+StateDirectory=deerkha-server
+Environment=DD_SERVER_DATA_DIR=/var/lib/deerkha-server
+Environment=PYTHONUNBUFFERED=1
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deerkha-retention

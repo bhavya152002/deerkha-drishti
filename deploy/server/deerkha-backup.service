@@ -1,0 +1,13 @@
+[Unit]
+Description=Deerkha Drishti database backup
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+# Runs as root because it uses `sudo -u postgres pg_dump` and writes to
+# /var/backups. Kept deliberately small and readable for that reason.
+ExecStart=/opt/deerkha-server/backup.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deerkha-backup

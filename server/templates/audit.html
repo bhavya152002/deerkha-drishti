@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% set active = 'audit' %}
+{% block title %}{{ device_id }} · Audit log{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<p class="sub">Every config change for this device, newest first.</p>
+<div class="card">
+  <table>
+    <thead><tr><th>When</th><th>Table</th><th>Row</th><th>Action</th><th>By</th><th>Config version</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+async function load() {
+  const rows = await apiGet(`/api/admin/devices/${DEV}/audit?limit=200`);
+  const tb = document.getElementById("rows");
+  if (!rows.length) { tb.innerHTML = "<tr><td colspan=6 class=muted>No changes yet.</td></tr>"; return; }
+  tb.innerHTML = rows.map(r => `<tr>
+    <td>${esc(r.created_at ? r.created_at.replace('T',' ').slice(0,19) : '')}</td>
+    <td>${esc(r.table_name||'')}</td>
+    <td class="muted">${esc(r.row_pk||'')}</td>
+    <td><span class="badge muted">${esc(r.action||'')}</span></td>
+    <td>${esc(r.actor||'')}</td>
+    <td><span class="pill">${esc((r.new_config_version||'').slice(0,20))}</span></td></tr>`).join("");
+}
+load();
+</script>
+{% endblock %}

@@ -1,0 +1,1008 @@
+<title>Deerkha Drishti — Complete Deployment Guide</title>
+
+<style>
+  :root {
+    --bg:#E9ECE4; --bg-sunk:#DFE3D9; --panel:#F3F5EF; --line:#C7CDBE; --line-soft:#D8DDD0;
+    --text:#1B2018; --text-dim:#5A6353; --text-mute:#7C8474;
+    --accent:#1F7A66; --accent-lo:#D6E7E0;
+    --critical:#A83C24; --crit-lo:#F5DED7;
+    --warn:#8A6412; --warn-lo:#F2E7C9;
+    --good:#3F7A48;
+    --code-bg:#1B2018; --code-fg:#DDE3D6;
+    --sans: ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    --serif: ui-serif,Georgia,"Iowan Old Style","Times New Roman",serif;
+    --mono: ui-monospace,"Cascadia Mono","SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#131711; --bg-sunk:#0D100C; --panel:#1B211A; --line:#2F382C; --line-soft:#242C22;
+      --text:#E2E7DC; --text-dim:#A2AC99; --text-mute:#78826F;
+      --accent:#58BFA4; --accent-lo:#16302A;
+      --critical:#E0715A; --crit-lo:#351A14;
+      --warn:#D8A93E; --warn-lo:#332715;
+      --good:#71B87C;
+      --code-bg:#0B0E0A; --code-fg:#D3DAC9;
+    }
+  }
+  :root[data-theme="dark"]{--bg:#131711;--bg-sunk:#0D100C;--panel:#1B211A;--line:#2F382C;--line-soft:#242C22;--text:#E2E7DC;--text-dim:#A2AC99;--text-mute:#78826F;--accent:#58BFA4;--accent-lo:#16302A;--critical:#E0715A;--crit-lo:#351A14;--warn:#D8A93E;--warn-lo:#332715;--good:#71B87C;--code-bg:#0B0E0A;--code-fg:#D3DAC9;}
+  :root[data-theme="light"]{--bg:#E9ECE4;--bg-sunk:#DFE3D9;--panel:#F3F5EF;--line:#C7CDBE;--line-soft:#D8DDD0;--text:#1B2018;--text-dim:#5A6353;--text-mute:#7C8474;--accent:#1F7A66;--accent-lo:#D6E7E0;--critical:#A83C24;--crit-lo:#F5DED7;--warn:#8A6412;--warn-lo:#F2E7C9;--good:#3F7A48;--code-bg:#1B2018;--code-fg:#DDE3D6;}
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--serif);
+       font-size:17px;line-height:1.65;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px;}
+
+  header.mast{padding:56px 0 32px;border-bottom:2px solid var(--text);}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+           color:var(--accent);margin:0 0 14px;}
+  h1{font-family:var(--sans);font-weight:800;letter-spacing:-.025em;
+     font-size:clamp(2rem,5.2vw,3.1rem);line-height:1.04;margin:0 0 16px;text-wrap:balance;}
+  .standfirst{font-size:1.12rem;color:var(--text-dim);max-width:66ch;margin:0;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:26px;
+        font-family:var(--mono);font-size:12px;color:var(--text-mute);}
+  .meta b{color:var(--text-dim);font-weight:500;}
+
+  .cols{display:grid;grid-template-columns:1fr;gap:40px;margin-top:40px;}
+  @media (min-width:1000px){
+    .cols{grid-template-columns:230px 1fr;gap:56px;align-items:start;}
+    nav.rail{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow-y:auto;}
+  }
+  nav.rail ol{list-style:none;margin:0;padding:0;}
+  nav.rail a{display:flex;gap:10px;align-items:baseline;font-family:var(--mono);font-size:12.5px;
+             text-decoration:none;color:var(--text-dim);padding:7px 0;border-bottom:1px solid var(--line-soft);}
+  nav.rail a:hover,nav.rail a:focus-visible{color:var(--accent);}
+  nav.rail .n{color:var(--text-mute);font-size:11px;min-width:20px;}
+  nav.rail .done{color:var(--good);}
+  nav.rail .grp{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+                color:var(--text-mute);margin:18px 0 4px;}
+
+  section.phase{margin-top:56px;scroll-margin-top:20px;}
+  section.phase:first-of-type{margin-top:0;}
+  .phase-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+              padding-bottom:12px;border-bottom:1px solid var(--line);}
+  .phase-num{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--bg);
+             background:var(--accent);padding:3px 9px;border-radius:2px;font-weight:600;}
+  h2{font-family:var(--sans);font-weight:750;letter-spacing:-.015em;font-size:1.55rem;
+     margin:0;flex:1 1 auto;text-wrap:balance;}
+  .phase-when{font-family:var(--mono);font-size:11.5px;color:var(--text-mute);}
+  .phase-intro{color:var(--text-dim);max-width:68ch;margin:16px 0 0;}
+
+  .step{display:grid;grid-template-columns:30px 1fr;gap:16px;padding:24px 0;
+        border-bottom:1px solid var(--line-soft);}
+  .step:last-child{border-bottom:0;}
+  .step > .box{padding-top:3px;}
+  .step input[type=checkbox]{appearance:none;width:20px;height:20px;margin:0;cursor:pointer;
+    border:1.5px solid var(--line);border-radius:3px;background:var(--panel);
+    display:grid;place-content:center;transition:background .12s,border-color .12s;}
+  .step input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent);}
+  .step input[type=checkbox]:checked::after{content:"";width:10px;height:6px;
+    border:2px solid var(--bg);border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-2px);}
+  .step input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .step h3{font-family:var(--sans);font-size:1.06rem;font-weight:680;margin:0 0 8px;
+           letter-spacing:-.005em;line-height:1.35;}
+  .step.is-done h3{color:var(--text-mute);text-decoration:line-through;text-decoration-thickness:1px;}
+  .step p{margin:0 0 12px;max-width:68ch;color:var(--text-dim);}
+  .step p:last-child{margin-bottom:0;}
+  .where{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+         color:var(--text-mute);display:block;margin-bottom:6px;}
+
+  .code{position:relative;background:var(--code-bg);color:var(--code-fg);border-radius:4px;
+        margin:0 0 14px;overflow:hidden;}
+  .code pre{margin:0;padding:14px 16px;overflow-x:auto;font-family:var(--mono);
+            font-size:13px;line-height:1.6;}
+  .code .cmt{color:#7E8B76;}
+  .code .ph{color:#D8A93E;}
+  .copy{position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:10.5px;
+        letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+        background:rgba(255,255,255,.09);color:#B9C4AE;border:0;border-radius:3px;padding:4px 8px;
+        transition:background .12s,color .12s;}
+  .copy:hover,.copy:focus-visible{background:rgba(255,255,255,.18);color:#E6EDDD;}
+  code.inl{font-family:var(--mono);font-size:.875em;background:var(--bg-sunk);padding:1.5px 5px;
+           border-radius:3px;border:1px solid var(--line-soft);}
+
+  .note{border-left:3px solid var(--accent);background:var(--accent-lo);padding:13px 16px;
+        margin:0 0 14px;border-radius:0 3px 3px 0;}
+  .note.crit{border-color:var(--critical);background:var(--crit-lo);}
+  .note.warn{border-color:var(--warn);background:var(--warn-lo);}
+  .note .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+             font-weight:600;display:block;margin-bottom:5px;color:var(--accent);}
+  .note.crit .lbl{color:var(--critical);}
+  .note.warn .lbl{color:var(--warn);}
+  .note p{margin:0;color:var(--text);font-size:.95rem;}
+  .note p + p{margin-top:8px;}
+
+  .tw{overflow-x:auto;margin:0 0 14px;border:1px solid var(--line);border-radius:4px;}
+  table{border-collapse:collapse;width:100%;font-size:14px;background:var(--panel);}
+  th,td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--line-soft);vertical-align:top;}
+  th{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+     color:var(--text-mute);font-weight:600;background:var(--bg-sunk);white-space:nowrap;}
+  tr:last-child td{border-bottom:0;}
+  td code{font-family:var(--mono);font-size:12.5px;}
+
+  .prog{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
+        padding:9px 0;}
+  .prog-inner{max-width:1180px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:14px;
+              font-family:var(--mono);font-size:11.5px;color:var(--text-mute);}
+  .bar{flex:1;height:4px;background:var(--bg-sunk);border-radius:2px;overflow:hidden;}
+  .bar span{display:block;height:100%;background:var(--accent);width:0;transition:width .25s;}
+  .reset{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+         background:none;border:1px solid var(--line);color:var(--text-mute);padding:3px 8px;
+         border-radius:3px;cursor:pointer;}
+  .reset:hover{color:var(--critical);border-color:var(--critical);}
+
+  footer{margin-top:72px;padding-top:24px;border-top:1px solid var(--line);
+         font-family:var(--mono);font-size:12px;color:var(--text-mute);}
+  h4{font-family:var(--sans);font-size:.95rem;font-weight:700;margin:26px 0 10px;letter-spacing:-.005em;}
+  ul.tight{margin:0 0 14px;padding-left:20px;color:var(--text-dim);}
+  ul.tight li{margin-bottom:5px;}
+  @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
+</style>
+
+<div class="prog">
+  <div class="prog-inner">
+    <span id="ptxt">0 / 0</span>
+    <span class="bar"><span id="pbar"></span></span>
+    <button class="reset" id="reset">Reset</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Deerkha Drishti · complete build</p>
+  <h1>Deployment guide</h1>
+  <p class="standfirst">
+    From a bare Ubuntu VPS and an unboxed Jetson to a camera detecting a live animal.
+    Every step, every command. This replaces all previous deployment documents —
+    anything that mentions <code class="inl">standalone/</code>, NSSM or Supabase is obsolete.
+  </p>
+  <div class="meta">
+    <span><b>Clean build.</b> No data migration.</span>
+    <span><b>Order matters.</b> Later steps assume earlier ones.</span>
+    <span><b>Progress saves</b> in this browser.</span>
+  </div>
+</header>
+
+<div class="cols">
+  <nav class="rail" aria-label="Contents">
+    <p class="grp">Prepare</p>
+    <ol>
+      <li><a href="#p0"><span class="n">00</span> What you need</a></li>
+    </ol>
+    <p class="grp">Server</p>
+    <ol>
+      <li><a href="#p1"><span class="n">01</span> VPS base</a></li>
+      <li><a href="#p2"><span class="n">02</span> Run the installer</a></li>
+      <li><a href="#p3"><span class="n">03</span> Admin login</a></li>
+      <li><a href="#p4"><span class="n">04</span> Deploy the code</a></li>
+      <li><a href="#p5"><span class="n">05</span> Domain + HTTPS</a></li>
+      <li><a href="#p6"><span class="n">06</span> First device record</a></li>
+    </ol>
+    <p class="grp">Jetson</p>
+    <ol>
+      <li><a href="#p7"><span class="n">07</span> Hardware + OS</a></li>
+      <li><a href="#p8"><span class="n">08</span> Build the engines</a></li>
+      <li><a href="#p9"><span class="n">09</span> Provision the box</a></li>
+      <li><a href="#p10"><span class="n">10</span> Ship the code</a></li>
+      <li><a href="#p11"><span class="n">11</span> First light</a></li>
+    </ol>
+    <p class="grp">Run it</p>
+    <ol>
+      <li><a href="#p12"><span class="n">12</span> Boxes 2–7</a></li>
+      <li><a href="#p13"><span class="n">13</span> Operations</a></li>
+      <li><a href="#ref"><span class="n">—</span> Troubleshooting</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <!-- 00 -->
+  <section class="phase" id="p0">
+    <div class="phase-head"><span class="phase-num">00</span><h2>What you need</h2>
+      <span class="phase-when">gather before starting</span></div>
+    <p class="phase-intro">
+      Anywhere you see <code class="inl">&lt;angle-brackets&gt;</code>, substitute your own value.
+      Commands are labelled with where to run them: your laptop, the VPS, or a Jetson.
+    </p>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="a1" aria-label="Gather prerequisites"></div>
+      <div>
+        <h3>Accounts and hardware</h3>
+        <div class="tw"><table>
+          <thead><tr><th>Thing</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><strong>VPS</strong></td><td>2 vCPU / 8 GB / 100 GB NVMe, <strong>Ubuntu 24.04 LTS, x86, Mumbai region</strong>. Hostinger KVM2 or equivalent. Region matters more than specs — everything else is in India.</td></tr>
+            <tr><td><strong>Domain</strong></td><td>You will point two names at the VPS: <code>admin.&lt;domain&gt;</code> and <code>app.&lt;domain&gt;</code>.</td></tr>
+            <tr><td><strong>Tailscale account</strong></td><td>Free tier is fine. Every Jetson and the VPS join one tailnet.</td></tr>
+            <tr><td><strong>Jetson Orin Nano 8 GB</strong></td><td>Plus an NVMe per box — <strong>465 GB</strong> is what is fitted. Never record to microSD. See the retention note in step 08: 465 GB holds roughly <strong>2.4 days</strong> across 8 cameras, not the 3 days originally planned.</td></tr>
+            <tr><td><strong>Telegram bot</strong></td><td>Token from @BotFather, and the chat ID alerts go to.</td></tr>
+            <tr><td><strong>Git remote</strong></td><td>Private. Deploys ship from a git tag, so the repo must be cloneable onto the VPS.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note crit">
+          <span class="lbl">The repo must have at least one tag before you start</span>
+          <p><code class="inl">deploy.sh</code> refuses anything that isn't a git tag and ships via
+          <code class="inl">git archive</code>. With no commits you cannot deploy to a Jetson
+          <em>or</em> clone onto the VPS.</p>
+        </div>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># laptop, in the repo</span>
+git add -A
+git commit -m "Initial fleet-ready release"
+git tag -a v1.0.0 -m "First deployment"
+git remote add origin <span class="ph">&lt;your-private-remote&gt;</span>
+git push -u origin master --tags</pre></div>
+        <div class="note warn">
+          <span class="lbl">Check before that first commit</span>
+          <p><code class="inl">standalone/env</code> holds a live Telegram token and database
+          password. It is gitignored, but confirm nothing sensitive is staged — git history is
+          permanent.</p>
+        </div>
+        <div class="code"><button class="copy">Copy</button><pre>git add -A --dry-run | sed "s/^add '//;s/'$//" \
+  | grep -iE "(^|/)\.env$|standalone/env|\.engine$|\.mp3$"
+<span class="cmt"># expect NO output</span></pre></div>
+        <p class="sub">The <code class="inl">sed</code> is not decoration: <code class="inl">git add
+        --dry-run</code> prints <code class="inl">add '.env'</code>, quotes included, so a pattern
+        anchored with <code class="inl">$</code> silently matches nothing and the check passes while
+        a secret is staged.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 01 -->
+  <section class="phase" id="p1">
+    <div class="phase-head"><span class="phase-num">01</span><h2>VPS base</h2>
+      <span class="phase-when">~15 min</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="b1" aria-label="Create user"></div>
+      <div>
+        <h3>Create the VPS and a working user</h3>
+        <span class="where">VPS, as root</span>
+        <p>Order the box with Ubuntu 24.04 in the Mumbai region, then:</p>
+        <div class="code"><button class="copy">Copy</button><pre>adduser --gecos "" deerkha-admin
+usermod -aG sudo deerkha-admin
+install -d -m 700 -o deerkha-admin -g deerkha-admin /home/deerkha-admin/.ssh</pre></div>
+        <p>From your laptop, install your key, then confirm key login works <em>before</em> the
+        installer disables password auth:</p>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># laptop</span>
+ssh-copy-id deerkha-admin@<span class="ph">&lt;vps-ip&gt;</span>
+ssh deerkha-admin@<span class="ph">&lt;vps-ip&gt;</span> 'echo key login works'</pre></div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="b2" aria-label="Tailscale"></div>
+      <div>
+        <h3>Join Tailscale and take a stable name</h3>
+        <span class="where">VPS</span>
+        <p>Do this <strong>before</strong> the installer — it binds Postgres to the tailnet address
+        only if Tailscale is already up.</p>
+        <div class="code"><button class="copy">Copy</button><pre>curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale ip -4          <span class="cmt"># note this address</span></pre></div>
+        <p>In the Tailscale admin console, rename this machine to <code class="inl">deerkha-vps</code>
+        and make sure <strong>MagicDNS is enabled</strong>. Using the name rather than the IP means
+        you can move the server later without editing every Jetson.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="b3" aria-label="Clone repo"></div>
+      <div>
+        <h3>Clone the repository</h3>
+        <span class="where">VPS</span>
+        <p>The installer reads <code class="inl">server/requirements.txt</code> and
+        <code class="inl">server/schema.sql</code> from the clone, so it must be present first.</p>
+        <div class="code"><button class="copy">Copy</button><pre>sudo apt-get update -qq &amp;&amp; sudo apt-get install -y -qq git
+git clone <span class="ph">&lt;your-private-remote&gt;</span> ~/deerkha
+cd ~/deerkha &amp;&amp; git checkout v1.0.0</pre></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section class="phase" id="p2">
+    <div class="phase-head"><span class="phase-num">02</span><h2>Run the installer</h2>
+      <span class="phase-when">~10 min, unattended</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="c1" aria-label="Run install-server"></div>
+      <div>
+        <h3>One command builds the whole server</h3>
+        <span class="where">VPS</span>
+        <div class="code"><button class="copy">Copy</button><pre>sudo bash ~/deerkha/deploy/server/install-server.sh</pre></div>
+        <p>It is idempotent — safe to re-run after fixing anything. What it does:</p>
+        <div class="tw"><table>
+          <thead><tr><th>Step</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            <tr><td>Sets timezone to <strong>UTC before installing Postgres</strong></td>
+                <td>The edge sends naive UTC timestamps. A cluster created under Asia/Kolkata puts every detection 5h30m ahead of the rest of the history — invisible for weeks.</td></tr>
+            <tr><td>Installs Postgres, nginx, certbot</td><td>—</td></tr>
+            <tr><td>Tunes Postgres for 2 vCPU / 8 GB / NVMe</td><td><code>shared_buffers=2GB</code>, <code>random_page_cost=1.1</code>, <code>timezone='UTC'</code> pinned.</td></tr>
+            <tr><td>Creates database <code>deerkha</code> and <strong>two</strong> roles</td>
+                <td><code>deerkha</code> for the app; <code>deerkha_edge</code> which can only <code>INSERT</code> into <code>detections</code>. A stolen field box cannot read or damage anything.</td></tr>
+            <tr><td>Applies <code>schema.sql</code></td><td>All <code>cfg_*</code> tables plus <code>detections</code>.</td></tr>
+            <tr><td>2 GB swap, journald capped at 500 MB, unattended security upgrades</td>
+                <td>These replace the operations team you had when the database was hosted.</td></tr>
+            <tr><td>ufw: SSH + Nginx Full only</td><td>Ports 8000 and 5432 are never public. Verified in step 05.</td></tr>
+            <tr><td>Disables SSH password auth</td><td>Only if it finds an authorized_keys — otherwise it warns and leaves it on.</td></tr>
+            <tr><td>Installs 5 systemd units, enables the two timers</td><td>Backup 02:00 UTC, retention 03:00 UTC.</td></tr>
+          </tbody>
+        </table></div>
+        <p>It deliberately does <strong>not</strong> start the app — there is no code and no admin
+        password yet. It prints a numbered checklist; the next sections follow it.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="c2" aria-label="Save edge credential"></div>
+      <div>
+        <h3>Save the edge database credential</h3>
+        <span class="where">VPS</span>
+        <p>This goes into every Jetson later. Copy it somewhere safe now.</p>
+        <div class="code"><button class="copy">Copy</button><pre>sudo cat /etc/deerkha-server/edge-db-credential.txt</pre></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section class="phase" id="p3">
+    <div class="phase-head"><span class="phase-num">03</span><h2>Admin login</h2>
+      <span class="phase-when">do not skip</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="d1" aria-label="Set admin creds"></div>
+      <div>
+        <h3>Set the admin username and password</h3>
+        <span class="where">VPS</span>
+        <div class="note crit">
+          <span class="lbl">The installer wrote CHANGE_ME, and the app will boot with it</span>
+          <p>There is no users table yet — login is a single username/password pair read straight
+          from the environment and compared with <code class="inl">hmac.compare_digest</code>.
+          Whatever you put in this file <em>is</em> the login. If you leave it, your password is
+          literally <code class="inl">CHANGE_ME</code>.</p>
+        </div>
+        <p>Generate a session secret, then edit the file:</p>
+        <div class="code"><button class="copy">Copy</button><pre>python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+sudo nano /etc/deerkha-server/server.env</pre></div>
+        <p>Set these three. <code class="inl">DATABASE_URL</code> is already filled in.</p>
+        <div class="code"><button class="copy">Copy</button><pre>SESSION_SECRET=<span class="ph">&lt;paste the generated string&gt;</span>
+ADMIN_USERNAME=<span class="ph">&lt;choose&gt;</span>
+ADMIN_PASSWORD=<span class="ph">&lt;choose a strong one&gt;</span></pre></div>
+        <div class="note">
+          <span class="lbl">All four are required</span>
+          <p><code class="inl">DATABASE_URL</code>, <code class="inl">SESSION_SECRET</code>,
+          <code class="inl">ADMIN_USERNAME</code>, <code class="inl">ADMIN_PASSWORD</code> — the
+          app raises at import and refuses to start if any is missing. That is deliberate: a server
+          that will not start is loud, one with a guessable admin cookie is silent. Changing
+          <code class="inl">SESSION_SECRET</code> later logs everyone out.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="phase" id="p4">
+    <div class="phase-head"><span class="phase-num">04</span><h2>Deploy the code</h2>
+      <span class="phase-when">~5 min</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="e1" aria-label="Release dir"></div>
+      <div>
+        <h3>Put the release in place and start the service</h3>
+        <span class="where">VPS</span>
+        <p>Same immutable-release pattern as the Jetsons: code lands in a per-tag directory and
+        <code class="inl">current</code> is a symlink you can flip back.</p>
+        <div class="code"><button class="copy">Copy</button><pre>TAG=v1.0.0
+sudo install -d -o deerkha -g deerkha /opt/deerkha-server/releases/$TAG
+sudo cp -a ~/deerkha/server/. /opt/deerkha-server/releases/$TAG/
+sudo chown -R deerkha:deerkha /opt/deerkha-server/releases/$TAG
+sudo ln -sfn /opt/deerkha-server/releases/$TAG /opt/deerkha-server/current.new
+sudo mv -Tf /opt/deerkha-server/current.new /opt/deerkha-server/current
+
+sudo systemctl enable --now deerkha-server
+sudo systemctl status deerkha-server --no-pager</pre></div>
+        <p>Confirm it can actually reach the database — this endpoint returns 503 if it can't:</p>
+        <div class="code"><button class="copy">Copy</button><pre>curl -s localhost:8000/healthz
+<span class="cmt"># expect: {"ok":true,"db":"ok"}</span></pre></div>
+        <div class="note warn">
+          <span class="lbl">If it will not start</span>
+          <p>Almost always a missing value in <code class="inl">server.env</code>. The traceback
+          names the variable:</p>
+          <p><code class="inl">sudo journalctl -u deerkha-server -n 40 --no-pager</code></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section class="phase" id="p5">
+    <div class="phase-head"><span class="phase-num">05</span><h2>Domain and HTTPS</h2>
+      <span class="phase-when">~10 min + DNS propagation</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="f1" aria-label="DNS"></div>
+      <div>
+        <h3>Point two names at the VPS</h3>
+        <span class="where">your domain registrar / DNS</span>
+        <div class="tw"><table>
+          <thead><tr><th>Record</th><th>Name</th><th>Value</th><th>Serves</th></tr></thead>
+          <tbody>
+            <tr><td>A</td><td><code>admin</code></td><td>VPS public IP</td><td>Full dashboard — your team</td></tr>
+            <tr><td>A</td><td><code>app</code></td><td>VPS public IP</td><td>Read-only client dashboard (built later)</td></tr>
+          </tbody>
+        </table></div>
+        <p>Wait for both to resolve before running certbot, or the challenge fails.</p>
+        <div class="code"><button class="copy">Copy</button><pre>dig +short admin.<span class="ph">&lt;domain&gt;</span>
+dig +short app.<span class="ph">&lt;domain&gt;</span></pre></div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="f2" aria-label="nginx + certbot"></div>
+      <div>
+        <h3>Enable the vhost and get certificates</h3>
+        <span class="where">VPS</span>
+        <p>The installer placed the config but did not enable it — it still says
+        <code class="inl">example.com</code>. Edit both
+        <code class="inl">server_name</code> lines first.</p>
+        <div class="code"><button class="copy">Copy</button><pre>sudo nano /etc/nginx/sites-available/deerkha
+sudo ln -s /etc/nginx/sites-available/deerkha /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo certbot --nginx -d admin.<span class="ph">&lt;domain&gt;</span> -d app.<span class="ph">&lt;domain&gt;</span>
+sudo systemctl reload nginx</pre></div>
+        <p>The client vhost hard-blocks <code class="inl">/api/admin/</code>,
+        <code class="inl">/api/live/</code>, <code class="inl">/device/</code> and the device API,
+        so a customer hostname cannot reach admin routes even if an app-side guard is ever wrong.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="f3" aria-label="Verify exposure"></div>
+      <div>
+        <h3>Verify what is and isn't reachable</h3>
+        <div class="note crit">
+          <span class="lbl">Run all four — the last two must fail</span>
+          <p>The app binds <code class="inl">0.0.0.0</code> so Jetsons can reach it over Tailscale.
+          <strong>ufw is the only thing keeping port 8000 off the public internet.</strong></p>
+        </div>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># must SUCCEED</span>
+curl -sI https://admin.<span class="ph">&lt;domain&gt;</span>/login | head -1
+curl -s  https://admin.<span class="ph">&lt;domain&gt;</span>/healthz
+
+<span class="cmt"># must TIME OUT (not connect, not 404)</span>
+curl --connect-timeout 5 http://<span class="ph">&lt;vps-public-ip&gt;</span>:8000/healthz
+curl --connect-timeout 5 http://<span class="ph">&lt;vps-public-ip&gt;</span>:5432</pre></div>
+        <p>Now open <code class="inl">https://admin.&lt;domain&gt;</code> and log in with the
+        credentials from step 03.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section class="phase" id="p6">
+    <div class="phase-head"><span class="phase-num">06</span><h2>First device record</h2>
+      <span class="phase-when">~5 min</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="g1" aria-label="Seed device"></div>
+      <div>
+        <h3>Seed the device and capture its token</h3>
+        <span class="where">VPS</span>
+        <p>Create it with <code class="inl">seed.py</code> rather than the dashboard: seeding fills
+        in class settings, CLIP prompts and deterrence targets, whereas a dashboard-created device
+        currently comes up with none of those — meaning detection is effectively off.</p>
+        <div class="code"><button class="copy">Copy</button><pre>cd /opt/deerkha-server/current
+sudo -u deerkha /opt/deerkha-server/venv/bin/python seed.py \
+    --device-id jetson-forest-01 --name "Forest Site 01"</pre></div>
+        <div class="note crit">
+          <span class="lbl">Copy the device token it prints — now</span>
+          <p>It is shown once. If you lose it, rotate from the device page and use the new one.
+          This goes into that Jetson's <code class="inl">device.env</code> in step 09.</p>
+        </div>
+        <p>Verify the assembled config matches the source constants:</p>
+        <div class="code"><button class="copy">Copy</button><pre>sudo -u deerkha /opt/deerkha-server/venv/bin/python verify_seed.py \
+    --device-id jetson-forest-01</pre></div>
+        <p>The <code class="inl">--device-id</code> must exactly match
+        <code class="inl">JETSON_DEVICE_ID</code> on the box, or config polling 404s and the Jetson
+        runs on its fallback — which has no cameras.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section class="phase" id="p7">
+    <div class="phase-head"><span class="phase-num">07</span><h2>Jetson hardware and OS</h2>
+      <span class="phase-when">per box</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="h1" aria-label="NVMe"></div>
+      <div>
+        <h3>Flash JetPack and mount the NVMe</h3>
+        <span class="where">Jetson</span>
+        <div class="note crit">
+          <span class="lbl">Never record to the eMMC or an SD card</span>
+          <p>Eight concurrent writers exceed a card's sustained throughput, and the write volume
+          kills it inside a year. Recording must land on the NVMe at
+          <code class="inl">/mnt/data</code>.</p>
+        </div>
+        <p>Use the <strong>same JetPack version on every box</strong> — the one-artifact model and
+        the shared TensorRT engines both depend on it.</p>
+        <div class="code"><button class="copy">Copy</button><pre>lsblk                                  <span class="cmt"># find the NVMe, e.g. nvme0n1</span>
+sudo mkfs.ext4 /dev/<span class="ph">nvme0n1</span>
+sudo mkdir -p /mnt/data
+echo "/dev/<span class="ph">nvme0n1</span> /mnt/data ext4 defaults,noatime 0 2" | sudo tee -a /etc/fstab
+sudo mount -a
+df -h /mnt/data                        <span class="cmt"># confirm ~465 GB</span></pre></div>
+        <div class="note warn">
+          <span class="lbl">465 GB does not hold 3 days at 8 cameras</span>
+          <p>Budget about <strong>400 GB</strong> usable — the cleanup rule holds back 10% free, and
+          JetPack plus <code class="inl">/opt/deerkha</code> take 25–30 GB if this is also the boot
+          device. At the modelled ~21 GB per camera per day that is <strong>~2.4 days</strong> across
+          8 cameras, and closer to <strong>1.5 days</strong> on a night when motion runs
+          continuously.</p>
+          <p>The cheapest fix is not in our code: drop the <strong>camera's own H.265 bitrate</strong>
+          from 3 Mbps to 2 Mbps and a full 3-day window fits, with little visible loss at 1080p.
+          Set <code class="inl">cleanup_days_to_keep</code> to <strong>2</strong> on the dashboard
+          until you have measured a real week — every figure here is modelled, not observed.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="h2" aria-label="Jetson tailscale"></div>
+      <div>
+        <h3>Join Tailscale and verify both directions</h3>
+        <span class="where">Jetson</span>
+        <div class="code"><button class="copy">Copy</button><pre>curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale status | grep deerkha-vps    <span class="cmt"># want 'direct', not 'relay'</span>
+getent hosts deerkha-vps               <span class="cmt"># MagicDNS must resolve</span>
+curl -s http://deerkha-vps:8000/healthz</pre></div>
+        <div class="note warn">
+          <span class="lbl">If the name does not resolve but the IP pings</span>
+          <p>On stock JetPack, <code class="inl">tailscaled</code> sometimes cannot take over
+          <code class="inl">/etc/resolv.conf</code> under NetworkManager. Either fix DNS, or add a
+          line to <code class="inl">/etc/hosts</code>:
+          <code class="inl">&lt;vps-tailscale-ip&gt; deerkha-vps</code>. Ugly but reliable, and it
+          keeps the hostname in <code class="inl">device.env</code> so the server can still move.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 -->
+  <section class="phase" id="p8">
+    <div class="phase-head"><span class="phase-num">08</span><h2>Build the TensorRT engines</h2>
+      <span class="phase-when">once for the whole fleet</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="i1" aria-label="Build engines"></div>
+      <div>
+        <h3>Build on one reference box, ship to all</h3>
+        <div class="note crit">
+          <span class="lbl">Engines are not portable across GPU architecture</span>
+          <p>Anything built for the old Jetson Nano (Maxwell) <strong>will not load on Orin</strong>
+          (Ampere). A failed load raises at import — which is exactly why the systemd unit sets
+          <code class="inl">StartLimitIntervalSec=0</code>. Without it, systemd gives up permanently
+          after five restarts and the box is dark until someone drives to it.</p>
+        </div>
+        <p>Build on one Orin of the same SKU and JetPack, then place the files on your laptop.
+        They are gitignored and shipped separately from the code.</p>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># laptop, in the repo</span>
+models/rfdetr_fp16.engine
+models/mobileclip2_s2_image_fp16.engine
+models/pt/mobileclip2_s2.pt
+sounds/*.mp3                <span class="cmt"># deterrence audio</span></pre></div>
+        <p>Because every box is the same SKU and JetPack, one build serves the entire fleet.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 -->
+  <section class="phase" id="p9">
+    <div class="phase-head"><span class="phase-num">09</span><h2>Provision the box</h2>
+      <span class="phase-when">~10 min per box</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="j1" aria-label="Run provision"></div>
+      <div>
+        <h3>Run the provisioner</h3>
+        <span class="where">laptop → Jetson</span>
+        <p>Both files must be copied — the script installs the unit from
+        <code class="inl">/tmp</code>.</p>
+        <div class="code"><button class="copy">Copy</button><pre>scp deploy/deerkha-drishti.service deploy/provision.sh \
+    <span class="ph">&lt;user&gt;</span>@<span class="ph">&lt;jetson-tailscale-ip&gt;</span>:/tmp/
+ssh <span class="ph">&lt;user&gt;</span>@<span class="ph">&lt;jetson-tailscale-ip&gt;</span> 'sudo bash /tmp/provision.sh'</pre></div>
+        <p>It creates the <code class="inl">deerkha</code> service user with the right groups
+        (<code class="inl">video,render</code> for NVDEC/GPU, <code class="inl">dialout</code> for
+        the USB relay, <code class="inl">audio</code> for deterrence), the
+        <code class="inl">/opt/deerkha</code> layout, a venv with
+        <code class="inl">--system-site-packages</code> (so <code class="inl">tensorrt</code>,
+        <code class="inl">cv2</code>, <code class="inl">torch</code> and <code class="inl">gi</code>
+        come from JetPack), logrotate, a narrowly scoped sudoers entry, and the systemd unit.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="j2" aria-label="device.env"></div>
+      <div>
+        <h3>Write the box's identity</h3>
+        <span class="where">Jetson</span>
+        <p>This is the <strong>only</strong> per-device file. Cameras, RTSP credentials, ROI,
+        classes, prompts, thresholds, retention <em>and the Telegram bot token and chat id</em> all
+        come from the server. A deploy never touches it.</p>
+        <div class="code"><button class="copy">Copy</button><pre>sudo nano /etc/deerkha/device.env</pre></div>
+        <div class="code"><button class="copy">Copy</button><pre>JETSON_DEVICE_ID=jetson-forest-01
+CONFIG_API_TOKEN=<span class="ph">&lt;device token from step 06&gt;</span>
+CONFIG_SERVER_URL=http://deerkha-vps:8000
+
+<span class="cmt"># Until alerts route through the server, the edge still writes to Postgres</span>
+<span class="cmt"># directly. Use the deerkha_edge credential from step 02 -- it can only</span>
+<span class="cmt"># INSERT into detections.</span>
+DATABASE_URL=<span class="ph">&lt;from /etc/deerkha-server/edge-db-credential.txt&gt;</span>
+
+<span class="cmt"># Telegram is configured on the DASHBOARD, not here. Leave these out.</span></pre></div>
+        <div class="note warn">
+          <span class="lbl">Only DATABASE_URL causes a crash-loop if missing</span>
+          <p><code class="inl">DATABASE_URL</code> is required — the pipeline raises at import
+          without it. The Telegram values are deliberately <em>not</em> required: a fresh box
+          receives them in its first config poll, and hard-requiring them would kill the process
+          before it could ever poll. A box with no token starts normally, logs its alerts, and
+          begins sending as soon as the server delivers one.</p>
+        </div>
+        <div class="note">
+          <span class="lbl">Set the Telegram token once, for the whole fleet</span>
+          <p>Dashboard → any device → <strong>Global settings</strong> → <strong>Telegram bot token
+          — fleet-wide</strong>. Every box picks it up on its next poll (~30 s), with no restart and
+          no SSH. Set <code class="inl">Telegram chat id</code> per device to route each site to its
+          own group — or give several devices the same chat id to pool them into one. The
+          per-device <strong>bot token override</strong> just below it is only for a site running
+          its own bot; leave it blank otherwise.</p>
+          <p>The token is never displayed again after saving, and it is redacted from the
+          preview-config view and from the audit log. It <em>is</em> written to each box's config
+          cache at <code class="inl">/var/lib/deerkha/config_cache.json</code> (mode 0600) —
+          so this makes rotation easy, it does not make a stolen box harmless.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="phase" id="p10">
+    <div class="phase-head"><span class="phase-num">10</span><h2>Ship the code</h2>
+      <span class="phase-when">~5 min</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="k1" aria-label="fleet.txt"></div>
+      <div>
+        <h3>Add the box to the fleet inventory</h3>
+        <span class="where">laptop</span>
+        <p>One line per box: device id, Tailscale IP, ssh user. The <strong>first uncommented line
+        is the canary</strong> — put a box you can physically reach there.</p>
+        <div class="code"><button class="copy">Copy</button><pre>nano deploy/fleet.txt
+<span class="cmt"># jetson-forest-01   100.x.y.z    deerkha</span></pre></div>
+        <p>Deploys use ssh with <code class="inl">BatchMode=yes</code>, so key auth to the
+        <code class="inl">deerkha</code> user must already work without a prompt.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="k2" aria-label="push models and deploy"></div>
+      <div>
+        <h3>Push the engines, then deploy</h3>
+        <span class="where">laptop</span>
+        <div class="code"><button class="copy">Copy</button><pre>./deploy/push-models.sh jetson-forest-01
+./deploy/deploy.sh v1.0.0 --only jetson-forest-01
+./deploy/deploy.sh --status</pre></div>
+        <p><code class="inl">deploy.sh</code> stages the tag into
+        <code class="inl">/opt/deerkha/releases/&lt;tag&gt;</code>, flips the
+        <code class="inl">current</code> symlink atomically, restarts the unit, then <strong>waits
+        for the box to prove itself healthy</strong>: service active, restart count not climbing,
+        and a fresh <code class="inl">HEARTBEAT</code> line in the log. If that fails it rolls the
+        box back to the previous release and halts the rollout.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="phase" id="p11">
+    <div class="phase-head"><span class="phase-num">11</span><h2>First light</h2>
+      <span class="phase-when">the part that proves it works</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="l1" aria-label="Device online"></div>
+      <div>
+        <h3>Confirm the device is online</h3>
+        <p>Open <code class="inl">https://admin.&lt;domain&gt;</code>. Within about a minute the
+        device card should show <strong>ONLINE</strong> with a real config version.</p>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># Jetson</span>
+sudo journalctl -u deerkha-drishti -f
+tail -f /var/log/deerkha/deerkha.log</pre></div>
+        <div class="note warn">
+          <span class="lbl">"cfg defaults" in the heartbeat means it never reached the server</span>
+          <p>The box is running its hardcoded fallback — which has no cameras. Check
+          <code class="inl">CONFIG_SERVER_URL</code>, <code class="inl">CONFIG_API_TOKEN</code>, and
+          that <code class="inl">JETSON_DEVICE_ID</code> matches the seeded
+          <code class="inl">--device-id</code> exactly.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="l2" aria-label="Add cameras"></div>
+      <div>
+        <h3>Add cameras</h3>
+        <span class="where">dashboard → Device → Cameras</span>
+        <p>Add each RTSP URL. Cameras hot-apply — they appear within one poll interval (~30 s), no
+        restart needed. Then set the device's <strong>Tailscale IP</strong> on the Status page, or
+        live view returns 502.</p>
+        <p>Set these three under Global settings before leaving:</p>
+        <div class="tw"><table>
+          <thead><tr><th>Setting</th><th>Value</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><code>motion_video_res</code></td><td>1280 × 720</td>
+                <td>Blank means native 1080p — the single largest disk and CPU cost, about 2.25× on both.</td></tr>
+            <tr><td><code>keep_text_tower_resident</code></td><td><code>false</code></td>
+                <td><strong>Mandatory on 8 GB Orin Nano.</strong> Frees 2–2.5 GB.</td></tr>
+            <tr><td><code>inference_target_fps</code></td><td>5.0</td>
+                <td>Paces the inference loop per camera.</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="l3" aria-label="Live view + detection"></div>
+      <div>
+        <h3>Live view, then a real detection</h3>
+        <p>Open <strong>Live view</strong> — you should get a snapshot grid. Then walk in front of a
+        camera and confirm the whole chain: a Telegram alert arrives, a row appears on the
+        Detections page, and files land on the Jetson.</p>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># Jetson</span>
+ls -la /mnt/data/video_storage/$(date +%F)/*/CAM_1/</pre></div>
+        <div class="note">
+          <span class="lbl">Then walk away and watch for two minutes</span>
+          <p>File counts must <strong>stop climbing</strong> within a couple of seconds of the
+          motion ending. If a new video appears every 10 s and a JPEG every 3 s on an empty scene,
+          the stale-inference guard is not working — that bug used to run all night on a frozen
+          frame.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="l4" aria-label="Soak"></div>
+      <div>
+        <h3>Soak for 24 hours</h3>
+        <div class="tw"><table>
+          <thead><tr><th>Check</th><th>Command</th><th>Want</th></tr></thead>
+          <tbody>
+            <tr><td>CPU / RAM</td><td><code>tegrastats</code></td><td>CPU &lt; 70%, RAM &lt; 6 of 8 GB with all cameras active</td></tr>
+            <tr><td>Encoder</td><td><code>grep 'FRAME DROPPED' /var/log/deerkha/deerkha.log</code></td><td>zero</td></tr>
+            <tr><td>Disk growth</td><td><code>du -sh /mnt/data/video_storage</code> hourly</td><td>extrapolate GB/camera/day — decides whether 3-day retention holds</td></tr>
+            <tr><td>Server offline</td><td>stop <code>deerkha-server</code></td><td>Jetson keeps running, backs off, resyncs on return</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="phase" id="p12">
+    <div class="phase-head"><span class="phase-num">12</span><h2>Boxes 2–7</h2>
+      <span class="phase-when">~20 min each</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="m1" aria-label="Repeat loop"></div>
+      <div>
+        <h3>The short loop</h3>
+        <ol class="tight" style="list-style:decimal">
+          <li>Mount the NVMe, join Tailscale (step 07)</li>
+          <li>Seed the device on the VPS, copy the token (step 06)</li>
+          <li><code class="inl">provision.sh</code>, then write <code class="inl">device.env</code> (step 09)</li>
+          <li>Add the line to <code class="inl">deploy/fleet.txt</code></li>
+          <li><code class="inl">./deploy/push-models.sh &lt;device-id&gt;</code></li>
+          <li><code class="inl">./deploy/deploy.sh v1.0.0 --only &lt;device-id&gt;</code></li>
+          <li>Add cameras and set the Tailscale IP in the dashboard</li>
+        </ol>
+        <p>Once several boxes are live, a fleet-wide update is one command — canary first,
+        health-gated, halting on failure:</p>
+        <div class="code"><button class="copy">Copy</button><pre>git tag -a v1.1.0 -m "reason" &amp;&amp; git push --tags
+./deploy/deploy.sh v1.1.0</pre></div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="m2" aria-label="Break test"></div>
+      <div>
+        <h3>Prove rollback works — before you trust it with seven boxes</h3>
+        <div class="note crit">
+          <span class="lbl">Deploy a deliberately broken tag once</span>
+          <p>Add a syntax error to <code class="inl">edge/main.py</code>, tag it, deploy. Required
+          behaviour, all four: the canary fails its health gate · it auto-rolls back · the fan-out
+          halts · the remaining boxes are untouched and still running.</p>
+          <p>If any of that does not happen, the script is not safe to point at the fleet. Every
+          failure out there is a drive into a forest.</p>
+        </div>
+        <div class="code"><button class="copy">Copy</button><pre>./deploy/deploy.sh --rollback --only <span class="ph">&lt;device-id&gt;</span>
+./deploy/deploy.sh --status</pre></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 -->
+  <section class="phase" id="p13">
+    <div class="phase-head"><span class="phase-num">13</span><h2>Operations</h2>
+      <span class="phase-when">ongoing</span></div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="n1" aria-label="Verify timers"></div>
+      <div>
+        <h3>Confirm the scheduled jobs are actually scheduled</h3>
+        <span class="where">VPS</span>
+        <div class="code"><button class="copy">Copy</button><pre>systemctl list-timers 'deerkha-*'
+sudo systemctl start deerkha-retention.service   <span class="cmt"># run once now</span>
+journalctl -u deerkha-retention -n 30 --no-pager</pre></div>
+        <p><strong>Retention is load-bearing.</strong> Without it <code class="inl">cfg_device_status</code>
+        grows about 12.6 MB/day at seven devices and nothing ever reads it beyond the newest row per
+        device.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="n2" aria-label="Prove restore"></div>
+      <div>
+        <h3>Prove a restore, and set up offsite copies</h3>
+        <div class="note crit">
+          <span class="lbl">Nobody else owns your backups now</span>
+          <p>An untested backup is not a backup. This restores the newest dump into a scratch
+          database and checks the tables are populated — catching the failure that matters: a job
+          that runs nightly, exits 0, and contains nothing useful.</p>
+        </div>
+        <div class="code"><button class="copy">Copy</button><pre>sudo systemctl start deerkha-backup.service
+sudo /opt/deerkha-server/backup.sh --test-restore
+sudo /opt/deerkha-server/backup.sh --list</pre></div>
+        <p>Pull a copy somewhere else regularly. Pulling rather than pushing means a compromised
+        VPS cannot destroy its own backups:</p>
+        <div class="code"><button class="copy">Copy</button><pre>scp deerkha-admin@deerkha-vps:/var/backups/deerkha/latest.dump <span class="ph">&lt;local-path&gt;</span></pre></div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="box"><input type="checkbox" data-k="n3" aria-label="Route auth tests"></div>
+      <div>
+        <h3>Run the guard tests after any code change</h3>
+        <p>These catch two bug classes this codebase has shipped before: a route with no auth guard,
+        and uploaded site photography served without a session.</p>
+        <div class="code"><button class="copy">Copy</button><pre>cd /opt/deerkha-server/current
+sudo -u deerkha /opt/deerkha-server/venv/bin/python -m pytest tests/ -q</pre></div>
+      </div>
+    </div>
+
+    <h4>Where things live</h4>
+    <div class="tw"><table>
+      <thead><tr><th>Path</th><th>Machine</th><th>Contents</th></tr></thead>
+      <tbody>
+        <tr><td><code>/opt/deerkha-server/current</code></td><td>VPS</td><td>server code (symlink to a release)</td></tr>
+        <tr><td><code>/etc/deerkha-server/server.env</code></td><td>VPS</td><td>DB URL, admin credentials</td></tr>
+        <tr><td><code>/var/lib/deerkha-server/</code></td><td>VPS</td><td>uploaded ROI reference frames</td></tr>
+        <tr><td><code>/var/backups/deerkha/</code></td><td>VPS</td><td>nightly dumps</td></tr>
+        <tr><td><code>/opt/deerkha/current</code></td><td>Jetson</td><td>edge code (symlink to a release)</td></tr>
+        <tr><td><code>/opt/deerkha/models/</code></td><td>Jetson</td><td>TensorRT engines — survives deploys</td></tr>
+        <tr><td><code>/etc/deerkha/device.env</code></td><td>Jetson</td><td>the only per-device file — never touched by a deploy</td></tr>
+        <tr><td><code>/var/lib/deerkha/</code></td><td>Jetson</td><td>config cache — survives deploys</td></tr>
+        <tr><td><code>/var/log/deerkha/</code></td><td>Jetson</td><td>rotating logs</td></tr>
+        <tr><td><code>/mnt/data/video_storage/</code></td><td>Jetson</td><td>recordings, pruned on a 3-day window</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- REF -->
+  <section class="phase" id="ref">
+    <div class="phase-head"><span class="phase-num">—</span><h2>Troubleshooting</h2>
+      <span class="phase-when">symptom → cause</span></div>
+
+    <div class="tw"><table>
+      <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+      <tbody>
+        <tr><td>Server will not start</td><td>A missing value in <code>server.env</code>. All four of <code>DATABASE_URL</code>, <code>SESSION_SECRET</code>, <code>ADMIN_USERNAME</code>, <code>ADMIN_PASSWORD</code> are required by design. The traceback names it.</td></tr>
+        <tr><td><code>/healthz</code> returns 503</td><td>Postgres unreachable. <code>systemctl status postgresql</code>.</td></tr>
+        <tr><td>Login form reloads with no error</td><td>You are on plain <code>http://</code>. The session cookie is <code>Secure</code>, so the browser never stores it. Use HTTPS. (<code>DD_INSECURE_COOKIES=1</code> exists for local dev only.)</td></tr>
+        <tr><td>Device stuck OFFLINE</td><td>Tailscale down, wrong <code>CONFIG_SERVER_URL</code>, or <code>JETSON_DEVICE_ID</code> not matching the seeded id. <code>tailscale status</code> on both ends.</td></tr>
+        <tr><td>Heartbeat says <code>cfg defaults</code></td><td>Never reached the server; running the hardcoded fallback, which has no cameras. Check the token.</td></tr>
+        <tr><td>Live view 502</td><td><code>tailscale_ip</code> unset or stale on the device page.</td></tr>
+        <tr><td>Live view 429</td><td>Hit <code>LIVE_MAX_STREAMS</code>. Expected, not a fault.</td></tr>
+        <tr><td>Box boots with no cameras</td><td>Correct behaviour when server and cache are both unreachable. The old fallback shipped another site's RTSP URLs and password.</td></tr>
+        <tr><td>Pipeline crash-loops after an engine swap</td><td>Engine built for the wrong GPU architecture or JetPack. Rebuild on a reference box of the same SKU.</td></tr>
+        <tr><td><strong>Every deploy fails its health gate</strong></td><td><code>LOG_DIR</code> not set to <code>/var/log/deerkha</code>. The gate reads that path; logs default to the code directory, which a deploy replaces. The unit sets it — check it was installed.</td></tr>
+        <tr><td>Retention job dies nightly, silently</td><td><code>StateDirectory=deerkha-server</code> missing from the timer's service unit. <code>settings.py</code> creates its data dir at import, so <code>ProtectSystem=strict</code> without it kills the job before it runs.</td></tr>
+        <tr><td>Roll back a release</td><td><code>./deploy/deploy.sh --rollback [--only &lt;id&gt;]</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Kill switches</h4>
+    <div class="tw"><table>
+      <thead><tr><th>Variable</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>DD_HOT_RECONCILE=0</code></td><td>Camera set changes need a restart again</td></tr>
+        <tr><td><code>CLEANUP_ENABLED=0</code></td><td>Disables disk reclamation — the disk will fill</td></tr>
+        <tr><td><code>CLEANUP_DRY_RUN=1</code></td><td>Cleanup logs what it would delete, deletes nothing</td></tr>
+        <tr><td><code>DD_DISPLAY=1</code></td><td>Local preview window. Costs ~1–1.5 CPU cores; bench only</td></tr>
+        <tr><td><code>LOG_LEVEL=DEBUG</code></td><td>Verbose edge logging</td></tr>
+        <tr><td><code>DD_STREAM_FPS=2 DD_STREAM_MAX_W=640 DD_JPEG_QUALITY=55</code></td><td>Metered-link profile: ~600 KB/s → ~50 KB/s per viewer</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  </main>
+</div>
+
+<footer>
+  Replaces deployment_guide.html, HANDOVER.md, server/README.md and edge/README_DYNAMIC_CONFIG.md.
+  Admin login is still a single username/password pair from the environment — per-user accounts,
+  roles and the read-only client dashboard are the next body of work.
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var KEY = "dd-deployguide-v1";
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type=checkbox][data-k]'));
+  var bar = document.getElementById("pbar");
+  var txt = document.getElementById("ptxt");
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { saved = {}; }
+
+  function paint() {
+    var done = 0;
+    boxes.forEach(function (b) {
+      if (b.checked) done++;
+      var step = b.closest(".step");
+      if (step) step.classList.toggle("is-done", b.checked);
+    });
+    bar.style.width = (boxes.length ? (done / boxes.length) * 100 : 0) + "%";
+    txt.textContent = done + " / " + boxes.length + " done";
+    document.querySelectorAll("nav.rail a").forEach(function (a) {
+      var sec = document.querySelector(a.getAttribute("href"));
+      if (!sec) return;
+      var inSec = sec.querySelectorAll("input[type=checkbox]");
+      a.classList.toggle("done", inSec.length > 0 &&
+        Array.prototype.every.call(inSec, function (i) { return i.checked; }));
+    });
+  }
+
+  boxes.forEach(function (b) {
+    b.checked = !!saved[b.dataset.k];
+    b.addEventListener("change", function () {
+      saved[b.dataset.k] = b.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      paint();
+    });
+  });
+  paint();
+
+  document.getElementById("reset").addEventListener("click", function () {
+    if (!confirm("Clear all checkmarks?")) return;
+    saved = {};
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    boxes.forEach(function (b) { b.checked = false; });
+    paint();
+  });
+
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var pre = btn.parentNode.querySelector("pre");
+      if (!pre) return;
+      var lines = pre.innerText.split("\n").filter(function (l) { return l.trim() !== ""; });
+      navigator.clipboard.writeText(lines.join("\n")).then(function () {
+        var old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () { btn.textContent = old; }, 1400);
+      }).catch(function () { btn.textContent = "Press Ctrl+C"; });
+    });
+  });
+})();
+</script>

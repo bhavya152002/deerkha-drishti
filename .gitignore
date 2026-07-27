@@ -1,0 +1,77 @@
+# ---------------------------------------------------------------------------
+# SECRETS -- nothing here may EVER enter git history.
+# ---------------------------------------------------------------------------
+# `standalone/env` (no dot) held a live Telegram bot token and the Supabase
+# password in plaintext. Rotate those credentials, then delete the file. Until
+# it is deleted this rule is the only thing keeping it out of history, and
+# history is forever.
+env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+device.env
+
+# ---------------------------------------------------------------------------
+# Large binaries -- shipped to the fleet by deploy/push-models.sh, not by git.
+# TensorRT engines are not portable across GPU architecture or JetPack version,
+# so they are BUILT PER FLEET on a reference box rather than version-controlled.
+# ---------------------------------------------------------------------------
+models/
+*.engine
+*.plan
+*.onnx
+*.pt
+*.pth
+sounds/
+*.mp3
+*.wav
+
+# ---------------------------------------------------------------------------
+# Runtime state -- per-device, lives in /var/lib/deerkha on a real box.
+# Committing these would make the "one identical artifact" guarantee false.
+# ---------------------------------------------------------------------------
+config_cache.json
+config_cache.json.tmp
+cleanup_config.json
+.cleanup.lock
+logs/
+*.log
+events.jsonl
+*.faulthandler
+video_storage/
+reference_frames/
+
+# Legacy: superseded by server-delivered ignore zones, no longer read.
+roi_zones.json
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+ds_env/
+.pytest_cache/
+.mypy_cache/
+
+# ---------------------------------------------------------------------------
+# Browser "Save page as, complete" copies of the deployment guide. The guide
+# itself is versioned at docs/deployment-guide.html; these carry a _files/
+# directory of downloaded frames and scripts and would drift silently.
+# ---------------------------------------------------------------------------
+*_files/
+Deerkha Drishti *.html
+
+# ---------------------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

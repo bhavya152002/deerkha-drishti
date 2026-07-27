@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set active = 'deterrence' %}
+{% block title %}{{ device_id }} · Deterrence{% endblock %}
+{% block content %}
+<h1>Deterrence &amp; audio</h1>
+<p class="sub">Relay mode, blink timing, and per-class response. Blink timing, audio mode and per-class targets apply live; relay mode / pins / USB port require a device restart.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Relay &amp; blink</h2>
+  <div id="global" class="grid cols-3"></div>
+  <div class="row end" style="margin-top:12px"><button onclick="saveGlobal()">Save relay/blink</button></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Per-class targets</h2>
+  <table>
+    <thead><tr><th>Class</th><th>Action</th><th>Audio files (one per line)</th><th></th></tr></thead>
+    <tbody id="targets"></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+const GFIELDS = [
+  ["relay_mode","Relay mode (restart)","select",["gpio","usb","both"]],
+  ["audio_playback_mode","Audio mode","select",["mixed","single","sequential"]],
+  ["relay_ch1_pin","GPIO ch1 pin (restart)","number"],
+  ["relay_ch2_pin","GPIO ch2 pin (restart)","number"],
+  ["relay_active_low","Active low (restart)","bool"],
+  ["usb_relay_port","USB port (restart)","text"],
+  ["usb_relay_baud","USB baud (restart)","number"],
+  ["usb_on_cmd_hex","USB on cmd (hex)","text"],
+  ["usb_off_cmd_hex","USB off cmd (hex)","text"],
+  ["blink_total_duration","Blink total (s)","number"],
+  ["blink_active_phase","Blink active (s)","number"],
+  ["blink_rest_phase","Blink rest (s)","number"],
+  ["blink_interval","Blink interval (s)","number"],
+];
+async function load() {
+  const d = await apiGet(`/api/admin/devices/${DEV}/deterrence`);
+  const g = d.global || {};
+  document.getElementById("global").innerHTML = GFIELDS.map(([k,lbl,t,opts]) => {
+    if (t === "select") return `<div><label>${lbl}</label><select id="g_${k}">${opts.map(o=>`<option ${g[k]===o?'selected':''}>${o}</option>`).join("")}</select></div>`;
+    if (t === "bool") return `<div><label>${lbl}</label><select id="g_${k}"><option value="true" ${g[k]?'selected':''}>true</option><option value="false" ${!g[k]?'selected':''}>false</option></select></div>`;
+    return `<div><label>${lbl}</label><input id="g_${k}" type="${t}" ${t==='number'?'step=any':''} value="${esc(g[k] ?? '')}"></div>`;
+  }).join("");
+  document.getElementById("targets").innerHTML = (d.targets||[]).map(t =>
+    `<tr><td><strong>${esc(t.class_name)}</strong></td>
+      <td><select id="a_${esc(t.class_name)}">
+        ${["none","light_only","light_and_audio"].map(o=>`<option ${t.action===o?'selected':''}>${o}</option>`).join("")}
+      </select></td>
+      <td><textarea id="af_${esc(t.class_name)}" style="min-width:360px">${esc((t.audio_files||[]).join("\n"))}</textarea></td>
+      <td><button onclick="saveTarget('${esc(t.class_name)}')">Save</button></td></tr>`
+  ).join("");
+}
+async function saveGlobal() {
+  const body = {};
+  GFIELDS.forEach(([k,lbl,t]) => {
+    const el = document.getElementById("g_"+k);
+    if (t === "number") body[k] = parseFloat(el.value);
+    else if (t === "bool") body[k] = el.value === "true";
+    else body[k] = el.value;
+  });
+  await saved(apiPut(`/api/admin/devices/${DEV}/deterrence`, body));
+}
+async function saveTarget(cls) {
+  const action = document.getElementById("a_"+cls).value;
+  const audio_files = document.getElementById("af_"+cls).value.split("\n").map(s=>s.trim()).filter(Boolean);
+  await saved(apiPut(`/api/admin/devices/${DEV}/deterrence/targets/${encodeURIComponent(cls)}`, { action, audio_files }));
+}
+load();
+</script>
+{% endblock %}

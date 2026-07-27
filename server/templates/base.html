@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Deerkha Drishti{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">DEERKHA DRISHTI<small>edge control server</small></div>
+    <nav class="nav">
+      <a href="/" class="{{ 'active' if active=='overview' else '' }}">Overview</a>
+      <a href="/detections" class="{{ 'active' if active=='detections' else '' }}">Detections</a>
+      {% if device_id %}
+        <div class="sep">Device · {{ device_id }}</div>
+        <a href="/device/{{ device_id }}" class="{{ 'active' if active=='device' else '' }}">Status</a>
+        <a href="/device/{{ device_id }}/live" class="{{ 'active' if active=='live' else '' }}">Live view</a>
+        <a href="/device/{{ device_id }}/cameras" class="{{ 'active' if active=='cameras' else '' }}">Cameras</a>
+        <a href="/device/{{ device_id }}/roi" class="{{ 'active' if active=='roi' else '' }}">ROI / Ignore zones</a>
+        <a href="/device/{{ device_id }}/classes" class="{{ 'active' if active=='classes' else '' }}">Class settings</a>
+        <a href="/device/{{ device_id }}/clip" class="{{ 'active' if active=='clip' else '' }}">CLIP prompts</a>
+        <a href="/device/{{ device_id }}/deterrence" class="{{ 'active' if active=='deterrence' else '' }}">Deterrence</a>
+        <a href="/device/{{ device_id }}/global" class="{{ 'active' if active=='global' else '' }}">Global settings</a>
+        <a href="/device/{{ device_id }}/audit" class="{{ 'active' if active=='audit' else '' }}">Audit log</a>
+      {% endif %}
+      <div class="sep">Session</div>
+      <a href="/logout">Log out ({{ admin_user }})</a>
+    </nav>
+  </aside>
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

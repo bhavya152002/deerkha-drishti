@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set active = 'detections' %}
+{% block title %}Detections · Deerkha Drishti{% endblock %}
+{% block content %}
+<h1>Detections</h1>
+<p class="sub">Live alert history from the Supabase <span class="pill">detections</span> table (the Jetson keeps logging here as before).</p>
+
+<div class="card">
+  <div class="row">
+    <div><label>Device</label><input id="f_device" placeholder="jetson-forest-01"></div>
+    <div><label>Type</label>
+      <select id="f_type"><option value="">any</option><option>critical</option><option>warning</option></select>
+    </div>
+    <div><label>Camera/source contains</label><input id="f_source" placeholder="CAM 1"></div>
+    <div><label>Limit</label><input id="f_limit" type="number" value="100"></div>
+    <button style="align-self:flex-end" onclick="load()">Refresh</button>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>Time</th><th>Type</th><th>Source</th><th>Device</th><th>Animals</th><th>Message</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function load() {
+  const q = new URLSearchParams();
+  const dev = document.getElementById("f_device").value.trim();
+  const type = document.getElementById("f_type").value;
+  const source = document.getElementById("f_source").value.trim();
+  const limit = document.getElementById("f_limit").value || 100;
+  if (dev) q.set("device_id", dev);
+  if (type) q.set("type", type);
+  if (source) q.set("source", source);
+  q.set("limit", limit);
+  const rows = await apiGet("/api/admin/detections?" + q.toString());
+  const tb = document.getElementById("rows");
+  if (!rows.length) { tb.innerHTML = "<tr><td colspan=6 class=muted>No detections.</td></tr>"; return; }
+  tb.innerHTML = rows.map(r => {
+    const cls = r.type === "critical" ? "crit" : "warn";
+    let animals = r.animals; try { if (typeof animals === "string") animals = JSON.parse(animals); } catch(e){}
+    const aStr = animals && typeof animals === "object" ? Object.entries(animals).map(([k,v])=>`${k}×${v}`).join(", ") : "";
+    return `<tr>
+      <td>${esc(r.timestamp ? r.timestamp.replace('T',' ').slice(0,19) : '')}</td>
+      <td><span class="badge ${cls}">${esc(r.type||'')}</span></td>
+      <td>${esc(r.source||'')}</td>
+      <td class="muted">${esc(r.device_id||'')}</td>
+      <td>${esc(aStr)}</td>
+      <td class="muted">${esc(r.message||'')}</td></tr>`;
+  }).join("");
+}
+load();
+</script>
+{% endblock %}

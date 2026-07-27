@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login · Deerkha Drishti</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="card login-card" method="post" action="/login">
+    <div class="brand" style="margin-bottom:16px">DEERKHA DRISHTI<small>edge control server</small></div>
+    {% if error %}<div class="badge crit" style="margin-bottom:10px">{{ error }}</div>{% endif %}
+    <label>Username</label>
+    <input name="username" autofocus autocomplete="username">
+    <label>Password</label>
+    <input name="password" type="password" autocomplete="current-password">
+    <div style="margin-top:16px"><button type="submit" style="width:100%">Sign in</button></div>
+  </form>
+</div>
+</body>
+</html>

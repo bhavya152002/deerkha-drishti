@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% set active = 'cameras' %}
+{% block title %}{{ device_id }} · Cameras{% endblock %}
+{% block content %}
+<h1>Cameras</h1>
+<p class="sub">RTSP sources, codecs and per-camera motion sensitivity. <strong>Everything on this page applies live</strong> — add, remove, enable/disable and URL/codec changes reach the device within one poll (~30s). No restart.</p>
+<div id="cams"></div>
+<div class="card">
+  <h2 style="margin-top:0">Add camera <span class="badge ok">applies live</span></h2>
+  <div class="grid cols-3">
+    <div><label>Name</label><input id="n_name" placeholder="CAM 5"></div>
+    <div><label>Index <span class="muted">(blank = auto)</span></label><input id="n_index" type="number" placeholder="auto"></div>
+    <div><label>Codec</label><select id="n_codec"><option>h265</option><option>h264</option></select></div>
+  </div>
+  <label>RTSP URL</label><input id="n_url" placeholder="rtsp://admin:pass@192.168.1.20">
+  <div class="row end" style="margin-top:12px"><button onclick="addCam()">Add camera</button></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+async function load() {
+  const cams = await apiGet(`/api/admin/devices/${DEV}/cameras`);
+  document.getElementById("cams").innerHTML = cams.map(renderCam).join("") ||
+    "<div class='card muted'>No cameras.</div>";
+}
+function renderCam(c) {
+  return `<div class="card" data-id="${c.id}">
+    <div class="row">
+      <strong>${esc(c.cam_name)}</strong>
+      <span class="pill">idx ${c.cam_index}</span>
+      <label style="display:inline;margin:0 0 0 8px"><input type="checkbox" style="width:auto" ${c.enabled?'checked':''} id="en_${c.id}"> enabled</label>
+      <div class="spacer"></div>
+      <button class="danger ghost" onclick="delCam('${c.id}')">Delete</button>
+    </div>
+    <div class="grid cols-2" style="margin-top:6px">
+      <div><label>RTSP URL <span class="badge ok">live</span></label><input id="url_${c.id}" value="${esc(c.rtsp_url)}"></div>
+      <div><label>Codec <span class="badge ok">live</span></label>
+        <select id="codec_${c.id}"><option ${c.codec==='h265'?'selected':''}>h265</option><option ${c.codec==='h264'?'selected':''}>h264</option></select></div>
+    </div>
+    <label style="margin-top:12px">Motion sensitivity <span class="muted">(live)</span></label>
+    <div class="grid cols-3">
+      <div><label>min_frames</label><input id="mf_${c.id}" type="number" value="${c.motion_min_frames ?? ''}"></div>
+      <div><label>threshold</label><input id="mt_${c.id}" type="number" value="${c.motion_threshold ?? ''}"></div>
+      <div><label>area_min</label><input id="ma_${c.id}" type="number" value="${c.motion_area_min ?? ''}"></div>
+      <div><label>kernel w</label><input id="mkw_${c.id}" type="number" value="${c.motion_kernel_w ?? ''}"></div>
+      <div><label>kernel h</label><input id="mkh_${c.id}" type="number" value="${c.motion_kernel_h ?? ''}"></div>
+    </div>
+    <div class="row end" style="margin-top:12px"><button onclick="saveCam('${c.id}')">Save</button></div>
+  </div>`;
+}
+function numOrNull(id){ const v=document.getElementById(id).value; return v===""?null:parseInt(v); }
+async function saveCam(id) {
+  const body = {
+    enabled: document.getElementById("en_"+id).checked,
+    rtsp_url: document.getElementById("url_"+id).value,
+    codec: document.getElementById("codec_"+id).value,
+    motion_min_frames: numOrNull("mf_"+id), motion_threshold: numOrNull("mt_"+id),
+    motion_area_min: numOrNull("ma_"+id), motion_kernel_w: numOrNull("mkw_"+id), motion_kernel_h: numOrNull("mkh_"+id),
+  };
+  await saved(apiPut(`/api/admin/cameras/${id}`, body));
+}
+async function delCam(id) {
+  if (!confirm("Delete this camera? The device will stop it within ~30s.")) return;
+  await saved(apiDelete(`/api/admin/cameras/${id}`), "Camera deleted"); load();
+}
+async function addCam() {
+  // Blank index -> send null so the server auto-assigns the next free one.
+  // Sending 0 (the old `|| 0` default) now collides with the first camera.
+  const rawIdx = document.getElementById("n_index").value.trim();
+  const body = {
+    cam_name: document.getElementById("n_name").value.trim(),
+    cam_index: rawIdx === "" ? null : parseInt(rawIdx, 10),
+    codec: document.getElementById("n_codec").value,
+    rtsp_url: document.getElementById("n_url").value.trim(),
+  };
+  if (!body.cam_name || !body.rtsp_url) return toast("name and URL required", true);
+  await saved(apiPost(`/api/admin/devices/${DEV}/cameras`, body), "Camera added"); load();
+}
+load();
+</script>
+{% endblock %}

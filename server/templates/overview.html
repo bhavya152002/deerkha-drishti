@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% set active = 'overview' %}
+{% block title %}Overview · Deerkha Drishti{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+<p class="sub">All edge devices, their live camera status and running config version.</p>
+
+<div id="devices" class="grid cols-2"></div>
+
+<div class="card" style="margin-top:20px">
+  <h2 style="margin-top:0">Add a device</h2>
+  <div class="row">
+    <div style="flex:1"><label>Device ID (must match JETSON_DEVICE_ID)</label><input id="new_id" placeholder="jetson-forest-01"></div>
+    <div style="flex:1"><label>Display name</label><input id="new_name" placeholder="Forest Site 01"></div>
+    <button onclick="addDevice()" style="align-self:flex-end">Create</button>
+  </div>
+  <p class="muted" id="new_token" style="margin-top:10px"></p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function load() {
+  const devices = await apiGet("/api/admin/devices");
+  const box = document.getElementById("devices");
+  if (!devices.length) { box.innerHTML = "<div class='card muted'>No devices yet. Add one below.</div>"; return; }
+  const cards = await Promise.all(devices.map(async d => {
+    let st = null;
+    try { st = await apiGet(`/api/admin/devices/${d.device_id}/status/latest`); } catch (e) {}
+    return renderCard(d, st);
+  }));
+  box.innerHTML = cards.join("");
+}
+function renderCard(d, st) {
+  const stale = !st || (Date.now() - new Date(st.received_at).getTime()) / 1000 > 180;
+  const online = st && !stale;
+  const cams = (st && st.per_camera) || [];
+  const camHtml = cams.map(c => {
+    const alive = c.thread_alive && (c.last_frame_age_sec == null || c.last_frame_age_sec < 15);
+    return `<span class="badge ${alive ? 'ok' : 'crit'}">${esc(c.cam_name || c.name)}${c.power_mode ? ' ⚡' : ''}</span>`;
+  }).join(" ");
+  const versionMatch = st && st.config_version === d.config_version;
+  return `<div class="card">
+    <div class="row">
+      <strong style="font-size:15px"><a href="/device/${esc(d.device_id)}">${esc(d.display_name || d.device_id)}</a></strong>
+      <span class="badge ${online ? 'ok' : 'muted'}">${online ? 'ONLINE' : 'OFFLINE'}</span>
+      ${d.restart_required ? '<span class="badge warn">RESTART PENDING</span>' : ''}
+      <div class="spacer"></div>
+      <span class="muted">${st ? ago(st.received_at) : 'no heartbeat'}</span>
+    </div>
+    <div class="muted pill" style="margin:8px 0">${esc(d.device_id)}</div>
+    <div class="row">${camHtml || '<span class="muted">no camera data</span>'}</div>
+    <div class="row" style="margin-top:10px">
+      <span class="muted">cams ${st ? (st.cameras_alive ?? '?') + '/' + (st.cameras_total ?? '?') : '-'}</span>
+      <span class="muted">disk ${st && st.disk_free_percent != null ? st.disk_free_percent.toFixed(0) + '%' : '-'}</span>
+      <span class="badge ${versionMatch ? 'ok' : 'warn'}">cfg ${versionMatch ? 'in sync' : 'out of date'}</span>
+    </div>
+  </div>`;
+}
+async function addDevice() {
+  const device_id = document.getElementById("new_id").value.trim();
+  const display_name = document.getElementById("new_name").value.trim();
+  if (!device_id) return toast("device_id required", true);
+  const res = await saved(apiPost("/api/admin/devices", { device_id, display_name }), "Device created");
+  document.getElementById("new_token").textContent = "Device token (put in Jetson env as CONFIG_API_TOKEN): " + res.device_token;
+  load();
+}
+load();
+setInterval(load, 15000);
+</script>
+{% endblock %}

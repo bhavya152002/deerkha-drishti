@@ -1,0 +1,23 @@
+# Deerkha Drishti fleet inventory.
+#
+# One line per box:  <device_id>  <ssh_host>  [ssh_user]
+#
+#   device_id  MUST match JETSON_DEVICE_ID in that box's /etc/deerkha/device.env
+#              and the cfg_devices.device_id row on the server.
+#   ssh_host   Tailscale IP (or MagicDNS name). The device API and SSH are
+#              tailnet-only; nothing here is ever exposed publicly.
+#   ssh_user   optional, defaults to 'deerkha'.
+#
+# The FIRST enabled line is the canary: deploy.sh ships to it alone, waits for
+# it to come back healthy, and only then rolls out to the rest. Put a box you
+# can physically reach first.
+#
+# Comment a line out to skip a box (e.g. one that is off for maintenance).
+
+jetson-forest-01   100.76.62.67    deerkha
+# jetson-forest-02   100.76.62.68    deerkha
+# jetson-forest-03   100.76.62.69    deerkha
+# jetson-forest-04   100.76.62.70    deerkha
+# jetson-forest-05   100.76.62.71    deerkha
+# jetson-forest-06   100.76.62.72    deerkha
+# jetson-forest-07   100.76.62.73    deerkha

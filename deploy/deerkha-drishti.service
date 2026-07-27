@@ -1,0 +1,83 @@
+# systemd unit for the Deerkha Drishti edge pipeline.
+#
+# Installed by deploy/provision.sh. This file is IDENTICAL on every box in the
+# fleet: everything device-specific lives in /etc/deerkha/device.env, and the
+# code path is a symlink that deploy.sh repoints. A release therefore never
+# needs to touch this unit.
+#
+# Restart=always is REQUIRED, not optional. The config client calls os._exit()
+# when the server sets restart_required (a restart-class config change, or the
+# dashboard's "Force restart" button). With no supervisor that exit is
+# permanent -- the pipeline dies and the site goes blind until someone notices.
+
+[Unit]
+Description=Deerkha Drishti edge detection pipeline
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+# NOT optional. systemd's default gives up PERMANENTLY after 5 restarts within
+# 10s. A TensorRT engine that fails to deserialize -- wrong GPU architecture
+# (Maxwell engines will not load on Orin), wrong JetPack, or a truncated
+# transfer -- raises during import, which burns through that limit in seconds.
+# The box is then dark until somebody drives to the site. Retrying forever is
+# strictly better: a crash-looping box still shows up as OFFLINE on the
+# dashboard, and recovers by itself once the engine is replaced.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=deerkha
+Group=deerkha
+
+# 'current' is a symlink to the active release, swapped atomically by
+# deploy.sh, so these paths never change across updates.
+WorkingDirectory=/opt/deerkha/current
+ExecStart=/opt/deerkha/venv/bin/python3 /opt/deerkha/current/main.py
+
+# The ONLY per-device file: JETSON_DEVICE_ID, CONFIG_API_TOKEN,
+# CONFIG_SERVER_URL. Never read or written by a deploy.
+EnvironmentFile=/etc/deerkha/device.env
+
+Environment=PYTHONUNBUFFERED=1
+
+# Mutable state (config_cache.json, cleanup_config.json, lock files) lives
+# outside the immutable release tree so it survives a deploy. Without this the
+# last-known-good config cache would be wiped on every update, and a box that
+# rebooted while the server was unreachable would fall back to DEFAULTS -- i.e.
+# come up with no cameras.
+Environment=DD_STATE_DIR=/var/lib/deerkha
+
+# Logs must ALSO live outside the release tree. log_setup.py defaults to
+# <code dir>/logs, which under this layout is /opt/deerkha/current/logs -- i.e.
+# inside the immutable per-release directory, so every deploy would throw away
+# the logs from the release you are trying to diagnose. deploy.sh's health gate
+# reads this path too.
+Environment=LOG_DIR=/var/log/deerkha
+
+# No local preview window. It costs ~1-1.5 CPU cores at 8 cameras, needs an X
+# server (one more thing to fail on boot), and shows a window nobody is sitting
+# in front of at a forest site. Live view is served over the network by
+# stream_server.py. Set to 1 only for bench work.
+Environment=DD_DISPLAY=0
+
+Restart=always
+RestartSec=5
+
+# Let open mp4 writers finalize on stop; SIGKILL here leaves the last clip of
+# every camera unplayable.
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# journald is a convenience view only; /var/log/deerkha/deerkha.log is the
+# source of truth. On stock JetPack /var/log/journal often doesn't exist, which
+# makes journald volatile -- the whole journal is wiped on every reboot.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deerkha-drishti
+
+# Raise the log level without editing code or the env file:
+#   sudo systemctl edit deerkha-drishti   -> [Service] Environment=LOG_LEVEL=DEBUG
+#   sudo systemctl restart deerkha-drishti
+
+[Install]
+WantedBy=multi-user.target

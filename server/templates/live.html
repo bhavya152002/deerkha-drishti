@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% set active = 'live' %}
+{% block title %}{{ device_id }} · Live view{% endblock %}
+{% block content %}
+<h1>Live view</h1>
+<p class="sub">
+  Frames are pulled from the Jetson over Tailscale and proxied here. The grid
+  refreshes every second (light on the field uplink); click a camera to open a
+  smooth live stream for just that one.
+</p>
+
+<div class="card">
+  <div class="row">
+    <div>
+      <label>Feed</label>
+      <select id="view_sel" onchange="setView(this.value)">
+        <option value="annotated">Annotated (motion / detection overlays)</option>
+        <option value="clean">Clean (raw frame)</option>
+      </select>
+    </div>
+    <div>
+      <label>Grid refresh</label>
+      <!-- Defaults to 5s. Field sites are often on metered 4G: at 1s per tile
+           an 8-camera grid left open runs tens of GB/day of UPLINK from the
+           site, which also starves the config poll and heartbeat on the same
+           link -- the device then shows OFFLINE because you are watching it.
+           The sub-second option was removed for the same reason. -->
+      <select id="rate_sel" onchange="setRate(this.value)">
+        <option value="5000" selected>5 s (default)</option>
+        <option value="2000">2 s</option>
+        <option value="1000">1 s (heavy)</option>
+        <option value="10000">10 s</option>
+        <option value="30000">30 s (metered link)</option>
+      </select>
+    </div>
+    <div class="spacer"></div>
+    <div style="align-self:end">
+      <a class="badge" href="/device/{{ device_id }}/roi">Edit ROI / zones on a live frame →</a>
+    </div>
+  </div>
+</div>
+
+<div id="grid" class="live-grid"></div>
+
+<style>
+  .live-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:12px; }
+  .tile { position:relative; background:#05070a; border:1px solid var(--border,#1c232d); border-radius:10px; overflow:hidden; aspect-ratio:16/9; cursor:pointer; }
+  .tile.expanded { grid-column:1/-1; aspect-ratio:auto; cursor:default; }
+  .tile.expanded img { max-height:72vh; }
+  .tile img { display:block; width:100%; height:100%; object-fit:contain; background:#05070a; }
+  .tile .cap { position:absolute; left:0; top:0; right:0; display:flex; align-items:center; gap:8px; padding:6px 10px;
+    background:linear-gradient(#000a,transparent); color:#e7ede9; font-size:13px; font-weight:600; pointer-events:none; }
+  .tile .cap .live { pointer-events:none; }
+  .tile .dot { width:8px; height:8px; border-radius:50%; background:#4fb477; box-shadow:0 0 6px #4fb477; }
+  .tile.stale .dot { background:#e5544b; box-shadow:0 0 6px #e5544b; }
+  .tile .overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    color:#e5544b; font-weight:700; letter-spacing:.08em; font-size:14px; background:#05070a; }
+  .tile.stale .overlay { display:flex; }
+  .tile .close { position:absolute; right:8px; top:6px; z-index:2; pointer-events:auto; }
+  .tile .hint { position:absolute; right:8px; bottom:6px; font-size:11px; color:#8fa39a; background:#000a; padding:2px 6px; border-radius:6px; pointer-events:none; }
+</style>
+{% endblock %}
+{% block scripts %}
+<script>
+const DEV = "{{ device_id }}";
+let CAMS = [];
+let VIEW = "annotated";
+let RATE = 5000;
+const timers = {};      // cam_index -> setInterval id (snapshot mode)
+const streaming = {};   // cam_index -> true when expanded/MJPEG
+
+// Grid tiles render at ~320px CSS, so the server's small-tile default is used.
+// An expanded tile asks for real resolution explicitly.
+function snapUrl(idx) { return `/api/live/${DEV}/${idx}/snapshot.jpg?view=${VIEW}&t=${Date.now()}`; }
+function bigSnapUrl(idx) { return `/api/live/${DEV}/${idx}/snapshot.jpg?view=${VIEW}&w=1280&q=75&t=${Date.now()}`; }
+function streamUrl(idx) { return `/api/live/${DEV}/${idx}/stream?view=${VIEW}`; }
+
+async function boot() {
+  try { CAMS = await apiGet(`/api/admin/devices/${DEV}/cameras`); }
+  catch (e) { document.getElementById("grid").innerHTML = "<div class='card muted'>Could not load cameras.</div>"; return; }
+  CAMS = CAMS.filter(c => c.enabled);
+  const grid = document.getElementById("grid");
+  if (!CAMS.length) { grid.innerHTML = "<div class='card muted'>No enabled cameras.</div>"; return; }
+  grid.innerHTML = CAMS.map(c => `
+    <div class="tile" id="tile_${c.cam_index}" onclick="expand(${c.cam_index})">
+      <div class="cap"><span class="dot"></span><span>${esc(c.cam_name)}</span><span class="live" id="live_${c.cam_index}"></span></div>
+      <button class="ghost close" style="display:none" id="close_${c.cam_index}" onclick="collapse(event, ${c.cam_index})">Close</button>
+      <img id="img_${c.cam_index}" alt="${esc(c.cam_name)}">
+      <div class="overlay">NO SIGNAL</div>
+      <div class="hint">click to enlarge · live</div>
+    </div>`).join("");
+  CAMS.forEach(c => startSnapshots(c.cam_index));
+}
+
+// --- snapshot (grid) mode: double-buffered preload -> swap to avoid flicker ---
+function refreshTile(idx) {
+  if (streaming[idx]) return;
+  const im = new Image();
+  im.onload = () => {
+    const tgt = document.getElementById(`img_${idx}`);
+    const tile = document.getElementById(`tile_${idx}`);
+    if (tgt && !streaming[idx]) { tgt.src = im.src; tile.classList.remove("stale"); }
+  };
+  im.onerror = () => {
+    const tile = document.getElementById(`tile_${idx}`);
+    if (tile && !streaming[idx]) tile.classList.add("stale");
+  };
+  im.src = snapUrl(idx);
+}
+function startSnapshots(idx) {
+  clearInterval(timers[idx]);
+  refreshTile(idx);
+  timers[idx] = setInterval(() => refreshTile(idx), RATE);
+}
+
+// --- stream (expanded) mode: MJPEG straight into the <img> ---
+function expand(idx) {
+  if (streaming[idx]) return;
+  streaming[idx] = true;
+  clearInterval(timers[idx]);
+  const tile = document.getElementById(`tile_${idx}`);
+  const img = document.getElementById(`img_${idx}`);
+  tile.classList.add("expanded"); tile.classList.remove("stale");
+  document.getElementById(`close_${idx}`).style.display = "";
+  document.getElementById(`live_${idx}`).textContent = "· LIVE";
+  img.onerror = () => tile.classList.add("stale");
+  img.onload = () => tile.classList.remove("stale");
+  img.src = streamUrl(idx);
+}
+function collapse(ev, idx) {
+  ev.stopPropagation();
+  streaming[idx] = false;
+  const tile = document.getElementById(`tile_${idx}`);
+  const img = document.getElementById(`img_${idx}`);
+  img.src = "";                       // drop the MJPEG connection
+  tile.classList.remove("expanded");
+  document.getElementById(`close_${idx}`).style.display = "none";
+  document.getElementById(`live_${idx}`).textContent = "";
+  startSnapshots(idx);
+}
+
+function setView(v) {
+  VIEW = v;
+  CAMS.forEach(c => {
+    if (streaming[c.cam_index]) document.getElementById(`img_${c.cam_index}`).src = streamUrl(c.cam_index);
+    else refreshTile(c.cam_index);
+  });
+}
+function setRate(r) {
+  RATE = parseInt(r) || 5000;
+  CAMS.forEach(c => { if (!streaming[c.cam_index]) startSnapshots(c.cam_index); });
+}
+
+// Stop polling while the tab is hidden, resume when it comes back.
+// This is the fix for the failure that actually happens in practice: an
+// operator leaves the live page open overnight and the site uploads all night.
+// Browsers only throttle hidden-tab timers to ~1/min after several minutes,
+// and not at all for tiles merely scrolled out of view, so this cannot be left
+// to the browser.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    Object.values(timers).forEach(clearInterval);
+    // Tear down MJPEG connections too -- those are the expensive ones.
+    CAMS.forEach(c => {
+      if (streaming[c.cam_index]) {
+        const im = document.getElementById(`img_${c.cam_index}`);
+        if (im) im.src = "";
+      }
+    });
+  } else {
+    CAMS.forEach(c => {
+      const im = document.getElementById(`img_${c.cam_index}`);
+      if (streaming[c.cam_index]) { if (im) im.src = streamUrl(c.cam_index); }
+      else startSnapshots(c.cam_index);
+    });
+  }
+});
+
+// stop all connections when leaving the page
+window.addEventListener("beforeunload", () => {
+  Object.values(timers).forEach(clearInterval);
+  CAMS.forEach(c => { const im = document.getElementById(`img_${c.cam_index}`); if (im) im.src = ""; });
+});
+
+boot();
+</script>
+{% endblock %}
