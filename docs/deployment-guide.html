@@ -767,6 +767,32 @@ DATABASE_URL=<span class="ph">&lt;from /etc/deerkha-server/edge-db-credential.tx
         for the box to prove itself healthy</strong>: service active, restart count not climbing,
         and a fresh <code class="inl">HEARTBEAT</code> line in the log. If that fails it rolls the
         box back to the previous release and halts the rollout.</p>
+        <div class="note">
+          <span class="lbl">Working on the box instead of over ssh? Use local-deploy.sh</span>
+          <p>If you administer the Jetson directly — remote desktop, console, or a keyboard in the
+          field — run the deployment <em>on</em> the box and skip ssh entirely. Same staging, same
+          atomic symlink swap, same health gate, same auto-rollback.</p>
+          <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># on the Jetson, once: a clone to deploy from</span>
+git clone https://github.com/bhavya152002/deerkha-drishti.git ~/deerkha-src
+
+<span class="cmt"># engines go straight into place (no push-models.sh needed)</span>
+sudo install -d -o deerkha -g deerkha /opt/deerkha/models/pt
+sudo cp rfdetr_fp16.engine mobileclip2_s2_image_fp16.engine /opt/deerkha/models/
+sudo cp mobileclip2_s2.pt /opt/deerkha/models/pt/
+sudo chown -R deerkha:deerkha /opt/deerkha/models
+
+<span class="cmt"># deploy, and thereafter for every update</span>
+cd ~/deerkha-src &amp;&amp; git fetch --tags --force
+sudo bash deploy/local-deploy.sh <span class="ph">&lt;tag&gt;</span>
+sudo bash deploy/local-deploy.sh --status
+sudo bash deploy/local-deploy.sh --rollback</pre></div>
+          <p>Only committed files at the tag are deployed, so what runs is always a named,
+          reproducible version — an uncommitted edit in the clone is ignored on purpose.</p>
+          <p><strong>Move to <code class="inl">deploy.sh</code> once you have more than one or two
+          boxes.</strong> Visiting seven forest sites to apply an update is the cost this whole
+          design exists to avoid, and only the ssh path gives you canary-first rollout that halts
+          the moment a box fails its health gate.</p>
+        </div>
       </div>
     </div>
   </section>
