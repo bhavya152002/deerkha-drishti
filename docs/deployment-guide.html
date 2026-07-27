@@ -471,12 +471,21 @@ sudo systemctl status deerkha-server --no-pager</pre></div>
           <thead><tr><th>Record</th><th>Name</th><th>Value</th><th>Serves</th></tr></thead>
           <tbody>
             <tr><td>A</td><td><code>admin</code></td><td>VPS public IP</td><td>Full dashboard — your team</td></tr>
-            <tr><td>A</td><td><code>app</code></td><td>VPS public IP</td><td>Read-only client dashboard (built later)</td></tr>
           </tbody>
         </table></div>
-        <p>Wait for both to resolve before running certbot, or the challenge fails.</p>
+        <div class="note warn">
+          <span class="lbl">An A record, not a CNAME — and do not add <code class="inl">app</code> yet</span>
+          <p>It must point straight at the VPS IP. Routing it through a CDN breaks two things: the
+          ACME challenge cannot reach your nginx, and the MJPEG live streams are long-lived
+          unbuffered responses that a CDN will stall.</p>
+          <p><code class="inl">app</code> waits until the client dashboard exists. Both hostnames
+          proxy to the same application, so publishing <code class="inl">app</code> today exposes
+          the <em>admin</em> login to the internet behind a single shared password.</p>
+        </div>
+        <p>Wait for it to resolve before running certbot. Let's Encrypt rate-limits failed
+        validations, and burning them against a record that has not propagated costs you an hour.</p>
         <div class="code"><button class="copy">Copy</button><pre>dig +short admin.<span class="ph">&lt;domain&gt;</span>
-dig +short app.<span class="ph">&lt;domain&gt;</span></pre></div>
+<span class="cmt"># must print the VPS IP. Empty = not propagated, or the record is missing.</span></pre></div>
       </div>
     </div>
 
@@ -485,17 +494,32 @@ dig +short app.<span class="ph">&lt;domain&gt;</span></pre></div>
       <div>
         <h3>Enable the vhost and get certificates</h3>
         <span class="where">VPS</span>
-        <p>The installer placed the config but did not enable it — it still says
-        <code class="inl">example.com</code>. Edit both
-        <code class="inl">server_name</code> lines first.</p>
-        <div class="code"><button class="copy">Copy</button><pre>sudo nano /etc/nginx/sites-available/deerkha
-sudo ln -s /etc/nginx/sites-available/deerkha /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo certbot --nginx -d admin.<span class="ph">&lt;domain&gt;</span> -d app.<span class="ph">&lt;domain&gt;</span>
-sudo systemctl reload nginx</pre></div>
-        <p>The client vhost hard-blocks <code class="inl">/api/admin/</code>,
-        <code class="inl">/api/live/</code>, <code class="inl">/device/</code> and the device API,
-        so a customer hostname cannot reach admin routes even if an app-side guard is ever wrong.</p>
+        <p><strong>Three stages, in this order.</strong> The real config declares
+        <code class="inl">listen 443 ssl</code> and so needs a certificate that does not exist yet;
+        the bootstrap vhost exists to break that circle.</p>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># 1. HTTP-only vhost, so nginx starts and can answer the ACME challenge</span>
+sudo install -m 644 ~/deerkha/deploy/server/nginx-deerkha-bootstrap.conf \
+     /etc/nginx/sites-available/deerkha
+sudo ln -sf /etc/nginx/sites-available/deerkha /etc/nginx/sites-enabled/
+sudo nginx -t &amp;&amp; sudo systemctl reload nginx
+
+<span class="cmt"># 2. issue the certificate WITHOUT letting certbot rewrite nginx</span>
+sudo certbot certonly --webroot -w /var/www/html -d admin.<span class="ph">&lt;domain&gt;</span>
+
+<span class="cmt"># 3. swap in the real config, cert paths already correct</span>
+sudo install -m 644 ~/deerkha/deploy/server/nginx-deerkha.conf \
+     /etc/nginx/sites-available/deerkha
+sudo nginx -t &amp;&amp; sudo systemctl reload nginx</pre></div>
+        <div class="note">
+          <span class="lbl">Why <code class="inl">certonly</code> rather than <code class="inl">--nginx</code></span>
+          <p><code class="inl">--nginx</code> edits your configuration in place. The reviewed config
+          in git would stop being the config that runs, and the security headers, the path denies
+          and the unbuffered MJPEG location would not survive a later regeneration.
+          <code class="inl">certonly --webroot</code> only writes certificates and never touches
+          nginx, so git stays the source of truth.</p>
+        </div>
+        <p class="sub">Renewal keeps working: certbot's timer renews the certificate in place, and
+        nginx picks it up on reload. Nothing in the config needs to change at renewal.</p>
       </div>
     </div>
 

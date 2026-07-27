@@ -318,11 +318,19 @@ UNIT_SRC="$(dirname "${BASH_SOURCE[0]}")"
 if [ -f "$UNIT_SRC/nginx-deerkha-proxy.conf" ]; then
     install -m 644 "$UNIT_SRC/nginx-deerkha-proxy.conf" /etc/nginx/deerkha-proxy.conf
 fi
-if [ -f "$UNIT_SRC/nginx-deerkha.conf" ] && [ ! -f /etc/nginx/sites-available/deerkha ]; then
-    install -m 644 "$UNIT_SRC/nginx-deerkha.conf" /etc/nginx/sites-available/deerkha
-    echo "    installed /etc/nginx/sites-available/deerkha"
-    echo "    NOT enabled yet -- it still says example.com. Edit the two server_name"
-    echo "    lines, then:  ln -s /etc/nginx/sites-available/deerkha /etc/nginx/sites-enabled/"
+if [ -f "$UNIT_SRC/nginx-deerkha-bootstrap.conf" ] && [ ! -f /etc/nginx/sites-available/deerkha ]; then
+    # The BOOTSTRAP config, not the real one. nginx-deerkha.conf declares
+    # `listen 443 ssl` and so requires a certificate that does not exist yet;
+    # installing it here would leave nginx unable to start, and certbot unable
+    # to run, because certbot tests the config before issuing anything.
+    install -m 644 "$UNIT_SRC/nginx-deerkha-bootstrap.conf" /etc/nginx/sites-available/deerkha
+    echo "    installed the HTTP-only bootstrap vhost"
+    echo "    enable it, get a certificate, THEN swap in the real config:"
+    echo "      ln -sf /etc/nginx/sites-available/deerkha /etc/nginx/sites-enabled/"
+    echo "      nginx -t && systemctl reload nginx"
+    echo "      certbot certonly --webroot -w /var/www/html -d <your-host>"
+    echo "      install -m 644 $UNIT_SRC/nginx-deerkha.conf /etc/nginx/sites-available/deerkha"
+    echo "      nginx -t && systemctl reload nginx"
 else
     echo "    /etc/nginx/sites-available/deerkha already exists, left untouched"
 fi
