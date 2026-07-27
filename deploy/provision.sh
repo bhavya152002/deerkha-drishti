@@ -134,8 +134,17 @@ fi
 # --no-deps installs open_clip itself and nothing else, so JetPack's torch keeps
 # winning. Its remaining dependencies are pure-python and safe to resolve
 # normally.
-"$ROOT/venv/bin/pip" install -q --no-deps open_clip_torch timm
-"$ROOT/venv/bin/pip" install -q regex ftfy tqdm huggingface-hub safetensors
+#
+# PINNED to the versions proven against JetPack's torch 2.8.0 / torchvision
+# 0.23.0 (CUDA 12.6) on Orin. Unpinned, a future open_clip release can require a
+# newer torch than the Jetson build provides, and the failure surfaces as a CUDA
+# error at runtime rather than a resolver error at install time.
+"$ROOT/venv/bin/pip" install -q --no-deps open_clip_torch==3.3.0 timm
+# torch's own pure-python dependencies. Safe to resolve normally -- none of them
+# pull torch back in.
+"$ROOT/venv/bin/pip" install -q \
+    filelock typing-extensions sympy networkx jinja2 fsspec \
+    regex ftfy tqdm huggingface-hub safetensors
 
 echo "==> verifying CUDA-capable torch"
 # Provisioning must fail HERE, not at the first deploy. Without this the box
