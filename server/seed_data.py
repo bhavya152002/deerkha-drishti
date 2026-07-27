@@ -45,6 +45,11 @@ ROI_END_MINUTE = 31
 DETECTION_RES = (1280, 720)
 ROI_POLYGONS_DRAWN_AT_RES = (1080, 720)
 
+# Resolution motion clips are RECORDED at. Was absent entirely, which left the
+# column NULL and meant "native" -- i.e. software-encoding 1080p on a board with
+# no hardware encoder, for every camera, continuously.
+MOTION_VIDEO_RES = (1280, 720)
+
 MOTION_DEFAULT = {"min_frames": 5, "threshold": 20, "kernel": (7, 7), "area_min": 300}
 MOTION_SENSITIVITY_PER_CAM = {
     "CAM 1": {"min_frames": 5, "threshold": 20, "kernel": (7, 7), "area_min": 300},
@@ -67,7 +72,9 @@ ANIMAL_MIN_CONFIRM_FRAMES = 30
 ANIMAL_BUFFER_WINDOW = 40
 MIN_BBOX_RATIO = 0.0026
 
-CLEANUP_DAYS_TO_KEEP = 3
+# 2, not 3: the fitted NVMe is 465 GB and 3 days at 8 cameras needs ~500 GB.
+# Raise once a real week of GB/camera/day has been measured.
+CLEANUP_DAYS_TO_KEEP = 2
 CLEANUP_LOW_SPACE_FREE_PERCENT = 10
 
 # reporting cadence -- intentionally faster than the old 3600s so the dashboard
@@ -161,4 +168,6 @@ SUPABASE_SIGNAL_ENABLED = True
 DETAILED_TELEGRAM_MSG = True
 IGNORE_ZONES_ENABLED = True
 ANIMAL_SUPABASE_TRIGGER = True
-KEEP_TEXT_TOWER_RESIDENT = True
+# False on 8 GB: the resident PyTorch text tower costs 2.0-2.5 GB, and the
+# reload path already exists for the rare prompt change.
+KEEP_TEXT_TOWER_RESIDENT = False

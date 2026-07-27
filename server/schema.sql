@@ -194,7 +194,15 @@ CREATE TABLE IF NOT EXISTS cfg_clip_distractors (
     min_crop_h          int  NOT NULL DEFAULT 45,
     min_rf_conf         double precision NOT NULL DEFAULT 0.40,
     clip_cooldown       double precision NOT NULL DEFAULT 5.0,
-    keep_text_tower_resident boolean NOT NULL DEFAULT true,
+    -- Keeping the PyTorch MobileCLIP TEXT tower resident costs 2.0-2.5 GB. On
+    -- an 8 GB Orin Nano that is the difference between ~90% and ~50% memory
+    -- use. The reload path already exists in edge/main.py, so the cost of
+    -- false is a short reload on the rare prompt change, not lost function.
+    -- MIGRATION for an existing database:
+    --   ALTER TABLE cfg_clip_distractors
+    --     ALTER COLUMN keep_text_tower_resident SET DEFAULT false;
+    --   UPDATE cfg_clip_distractors SET keep_text_tower_resident = false;
+    keep_text_tower_resident boolean NOT NULL DEFAULT false,
     updated_at          timestamptz NOT NULL DEFAULT now()
 );
 
@@ -210,8 +218,18 @@ CREATE TABLE IF NOT EXISTS cfg_global_settings (
     detection_res_h     int  NOT NULL DEFAULT 720,
     polygons_drawn_res_w int NOT NULL DEFAULT 1080,
     polygons_drawn_res_h int NOT NULL DEFAULT 720,
-    motion_video_res_w  int,                             -- NULL => native
-    motion_video_res_h  int,
+    -- Resolution motion clips are RECORDED at. NULL means native, which on a
+    -- 1080p camera means encoding 1080p IN SOFTWARE -- Orin Nano has no NVENC.
+    -- That is 2.25x the encode CPU and 2.25x the writer-queue RAM
+    -- (AsyncVideoWriter holds 50 full-res BGR frames: 311MB at 1080p vs 138MB
+    -- at 720p, per writer, two writers per camera).
+    -- MIGRATION for an existing database:
+    --   ALTER TABLE cfg_global_settings ALTER COLUMN motion_video_res_w SET DEFAULT 1280;
+    --   ALTER TABLE cfg_global_settings ALTER COLUMN motion_video_res_h SET DEFAULT 720;
+    --   UPDATE cfg_global_settings SET motion_video_res_w=1280, motion_video_res_h=720
+    --     WHERE motion_video_res_w IS NULL;
+    motion_video_res_w  int  DEFAULT 1280,
+    motion_video_res_h  int  DEFAULT 720,
     cooldown_specific   int  NOT NULL DEFAULT 3,
     cooldown_generic    int  NOT NULL DEFAULT 15,
     motion_close_delay  int  NOT NULL DEFAULT 8,
@@ -232,7 +250,11 @@ CREATE TABLE IF NOT EXISTS cfg_global_settings (
     animal_min_confirm_frames int NOT NULL DEFAULT 30,
     animal_buffer_window int NOT NULL DEFAULT 40,
     min_bbox_ratio      double precision NOT NULL DEFAULT 0.0026,
-    cleanup_days_to_keep int NOT NULL DEFAULT 3,
+    -- 2, not 3: the fitted NVMe is 465 GB, and 3 days at 8 cameras needs ~500 GB
+    -- even with the passthrough mux. Raise it once a real week of
+    -- GB/camera/day has been measured. MIGRATION:
+    --   ALTER TABLE cfg_global_settings ALTER COLUMN cleanup_days_to_keep SET DEFAULT 2;
+    cleanup_days_to_keep int NOT NULL DEFAULT 2,
     cleanup_low_space_free_percent double precision NOT NULL DEFAULT 10,
     heartbeat_interval_sec int NOT NULL DEFAULT 60,
     poll_interval_sec   int  NOT NULL DEFAULT 30,

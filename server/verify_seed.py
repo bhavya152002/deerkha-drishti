@@ -63,6 +63,10 @@ def verify(device_id: str):
     # cleanup + motion default
     check("cleanup.days", blob["cleanup"]["days_to_keep"], S.CLEANUP_DAYS_TO_KEEP)
     check("cleanup.low_space", blob["cleanup"]["low_space_free_percent"], S.CLEANUP_LOW_SPACE_FREE_PERCENT)
+    # NULL here means "record at camera-native resolution", which on a board
+    # with no hardware encoder is the single most expensive default we can ship.
+    # Assert it is actually set, not merely present.
+    check("motion_video_res", blob["motion_video_res"], list(S.MOTION_VIDEO_RES))
     check("motion_default", blob["motion_default"], {
         "min_frames": S.MOTION_DEFAULT["min_frames"], "threshold": S.MOTION_DEFAULT["threshold"],
         "kernel": list(S.MOTION_DEFAULT["kernel"]), "area_min": S.MOTION_DEFAULT["area_min"],

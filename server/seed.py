@@ -59,6 +59,10 @@ def build_children(device_id: str) -> list:
             min_confirm_frames=S.MIN_CONFIRM_FRAMES, buffer_window=S.BUFFER_WINDOW,
             animal_min_confirm_frames=S.ANIMAL_MIN_CONFIRM_FRAMES, animal_buffer_window=S.ANIMAL_BUFFER_WINDOW,
             min_bbox_ratio=S.MIN_BBOX_RATIO,
+            # motion_video_res was NEVER passed here, so every seeded device got
+            # NULL -- "record at camera-native resolution" -- and software-encoded
+            # 1080p on a board with no hardware encoder.
+            motion_video_res_w=S.MOTION_VIDEO_RES[0], motion_video_res_h=S.MOTION_VIDEO_RES[1],
             cleanup_days_to_keep=S.CLEANUP_DAYS_TO_KEEP, cleanup_low_space_free_percent=S.CLEANUP_LOW_SPACE_FREE_PERCENT,
             heartbeat_interval_sec=S.HEARTBEAT_INTERVAL_SEC, poll_interval_sec=S.POLL_INTERVAL_SEC,
             motion_default_min_frames=S.MOTION_DEFAULT["min_frames"], motion_default_threshold=S.MOTION_DEFAULT["threshold"],

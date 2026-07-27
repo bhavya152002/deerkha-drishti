@@ -112,7 +112,8 @@ class ClipDistractors(Base):
     min_crop_h = Column(Integer, nullable=False, default=45)
     min_rf_conf = Column(Float, nullable=False, default=0.40)
     clip_cooldown = Column(Float, nullable=False, default=5.0)
-    keep_text_tower_resident = Column(Boolean, nullable=False, default=True)
+    # False on an 8 GB board: the resident PyTorch text tower costs 2.0-2.5 GB.
+    keep_text_tower_resident = Column(Boolean, nullable=False, default=False)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
@@ -126,8 +127,10 @@ class GlobalSettings(Base):
     detection_res_h = Column(Integer, nullable=False, default=720)
     polygons_drawn_res_w = Column(Integer, nullable=False, default=1080)
     polygons_drawn_res_h = Column(Integer, nullable=False, default=720)
-    motion_video_res_w = Column(Integer)
-    motion_video_res_h = Column(Integer)
+    # Record at 720p, not camera-native. Orin Nano has no hardware encoder, so
+    # native 1080p means 2.25x the CPU and 2.25x the writer-queue RAM.
+    motion_video_res_w = Column(Integer, default=1280)
+    motion_video_res_h = Column(Integer, default=720)
     cooldown_specific = Column(Integer, nullable=False, default=3)
     cooldown_generic = Column(Integer, nullable=False, default=15)
     motion_close_delay = Column(Integer, nullable=False, default=8)
@@ -141,7 +144,7 @@ class GlobalSettings(Base):
     animal_min_confirm_frames = Column(Integer, nullable=False, default=30)
     animal_buffer_window = Column(Integer, nullable=False, default=40)
     min_bbox_ratio = Column(Float, nullable=False, default=0.0026)
-    cleanup_days_to_keep = Column(Integer, nullable=False, default=3)
+    cleanup_days_to_keep = Column(Integer, nullable=False, default=2)
     cleanup_low_space_free_percent = Column(Float, nullable=False, default=10)
     heartbeat_interval_sec = Column(Integer, nullable=False, default=60)
     poll_interval_sec = Column(Integer, nullable=False, default=30)
