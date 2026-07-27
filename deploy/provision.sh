@@ -120,7 +120,50 @@ fi
 # a bare ModuleNotFoundError.
 "$ROOT/venv/bin/pip" install -q \
     requests sqlalchemy psycopg2-binary numpy pygame pyserial \
-    python-dotenv open_clip_torch pillow
+    python-dotenv pillow
+
+# open_clip_torch DEPENDS ON torch AND torchvision. Installing it normally makes
+# pip fetch the PyPI wheels, which are built against a newer CUDA runtime than
+# the Jetson's driver supports -- and because they land inside the venv they
+# SHADOW JetPack's working build. The failure is not at install time; it is the
+# first torch.cuda call:
+#
+#   torch.AcceleratorError: CUDA error: CUDA driver version is insufficient
+#   for CUDA runtime version
+#
+# --no-deps installs open_clip itself and nothing else, so JetPack's torch keeps
+# winning. Its remaining dependencies are pure-python and safe to resolve
+# normally.
+"$ROOT/venv/bin/pip" install -q --no-deps open_clip_torch timm
+"$ROOT/venv/bin/pip" install -q regex ftfy tqdm huggingface-hub safetensors
+
+echo "==> verifying CUDA-capable torch"
+# Provisioning must fail HERE, not at the first deploy. Without this the box
+# looks provisioned, the deploy activates, and the pipeline crash-loops on an
+# error that points at the application rather than at the environment.
+if ! "$ROOT/venv/bin/python" - <<'PYEOF'
+import sys
+try:
+    import torch
+except Exception as e:
+    sys.exit(f"torch not importable: {e}")
+if not torch.cuda.is_available():
+    sys.exit("torch imported but CUDA is NOT available")
+print(f"    torch {torch.__version__}, CUDA {torch.version.cuda}, "
+      f"device: {torch.cuda.get_device_name(0)}")
+PYEOF
+then
+  echo "    !! torch in this venv cannot use CUDA."
+  echo
+  echo "    Almost always: a PyPI torch wheel is shadowing JetPack's build."
+  echo "    Check where it is coming from:"
+  echo "        $ROOT/venv/bin/python -c 'import torch; print(torch.__file__)'"
+  echo "    If that path is inside $ROOT/venv, remove it so the system build wins:"
+  echo "        $ROOT/venv/bin/pip uninstall -y torch torchvision"
+  echo "    JetPack does not ship torch by default; install NVIDIA's Jetson wheel"
+  echo "    system-wide (not in the venv) if 'python3 -c \"import torch\"' also fails."
+  exit 1
+fi
 
 echo "==> sudoers (service restart only)"
 # deploy.sh restarts the unit over ssh as the service user. Scope the grant to
