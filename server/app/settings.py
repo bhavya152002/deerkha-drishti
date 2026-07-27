@@ -9,11 +9,29 @@ process (they are not exposed via any API route).
 import os
 from dotenv import load_dotenv
 
-# Load .env sitting next to the `server/` directory (server/.env).
+# Where configuration comes from, in order. load_dotenv() never overrides a
+# variable that is already set, so systemd's EnvironmentFile always wins and
+# these are only fallbacks.
+#
+#   1. DD_SERVER_ENV_FILE      -- explicit override, for odd layouts
+#   2. server/.env             -- a development checkout
+#   3. /etc/deerkha-server/server.env
+#
+# (3) is what makes the CLI tools work on a deployed box. The service gets its
+# environment from systemd, but `seed.py`, `verify_seed.py` and
+# `retention.py --dry-run` are run BY HAND and inherit nothing. Looking only
+# beside the code fails there by construction: the release tree is immutable and
+# replaced wholesale on deploy, so it neither has nor should have a .env in it.
 _here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_env_path = os.path.join(_here, ".env")
-if os.path.isfile(_env_path):
-    load_dotenv(_env_path)
+_ENV_CANDIDATES = [
+    os.environ.get("DD_SERVER_ENV_FILE"),
+    os.path.join(_here, ".env"),
+    "/etc/deerkha-server/server.env",
+]
+for _candidate in _ENV_CANDIDATES:
+    if _candidate and os.path.isfile(_candidate):
+        load_dotenv(_candidate)
+        break
 else:
     load_dotenv()
 
@@ -22,8 +40,12 @@ def _require(name: str) -> str:
     val = os.environ.get(name)
     if not val:
         raise RuntimeError(
-            f"Missing required environment variable '{name}'. "
-            f"Copy server/.env.example to server/.env and fill it in."
+            f"Missing required environment variable '{name}'.\n"
+            f"Looked for an env file at: "
+            + ", ".join(c for c in _ENV_CANDIDATES if c)
+            + "\nOn a deployed server, set it in /etc/deerkha-server/server.env "
+            "(the same file the systemd unit reads). In a development checkout, "
+            "copy server/.env.example to server/.env."
         )
     return val
 
