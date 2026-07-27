@@ -35,6 +35,39 @@ fi
 # in confusing ways at the first camera or the first deterrence trigger.
 usermod -aG video,render,dialout,audio "$SVC_USER"
 
+echo "==> ssh access for the service user"
+# deploy.sh connects to this box AS $SVC_USER with BatchMode=yes, so no password
+# prompt is possible. useradd creates the account with no authorized_keys, so
+# without this step provisioning LOOKS successful and the first deploy fails
+# with "Permission denied (publickey)" against a box that is otherwise fine.
+#
+# Keys come from DEPLOY_PUBKEY if set, else from whoever is running this script
+# -- you reached this box over ssh, so that key is the one that should work.
+SSH_DIR="/home/$SVC_USER/.ssh"
+AUTH="$SSH_DIR/authorized_keys"
+install -d -m 700 -o "$SVC_USER" -g "$SVC_USER" "$SSH_DIR"
+touch "$AUTH"
+if [ -n "${DEPLOY_PUBKEY:-}" ]; then
+  grep -qxF "$DEPLOY_PUBKEY" "$AUTH" 2>/dev/null || echo "$DEPLOY_PUBKEY" >> "$AUTH"
+fi
+for _src in "/home/${SUDO_USER:-__none__}/.ssh/authorized_keys" /root/.ssh/authorized_keys; do
+  [ -s "$_src" ] || continue
+  while IFS= read -r _k; do
+    [ -n "$_k" ] || continue
+    case "$_k" in \#*) continue ;; esac
+    grep -qxF "$_k" "$AUTH" 2>/dev/null || echo "$_k" >> "$AUTH"
+  done < "$_src"
+done
+chown "$SVC_USER:$SVC_USER" "$AUTH"
+chmod 600 "$AUTH"
+if [ -s "$AUTH" ]; then
+  echo "    $(grep -c . "$AUTH") key(s) authorised for $SVC_USER"
+else
+  echo "    !! NO KEYS INSTALLED -- deploy.sh will fail with 'Permission denied'."
+  echo "       Fix from your laptop:  ssh-copy-id $SVC_USER@<tailscale-ip>"
+  echo "       or re-run:  DEPLOY_PUBKEY='ssh-ed25519 AAAA...' sudo -E bash /tmp/provision.sh"
+fi
+
 echo "==> directories"
 install -d -o "$SVC_USER" -g "$SVC_USER" "$ROOT" "$ROOT/releases" "$ROOT/models" "$ROOT/sounds"
 install -d -o "$SVC_USER" -g "$SVC_USER" "$STATE" "$LOGS"
