@@ -104,10 +104,12 @@
         margin:0 0 14px;border-radius:0 3px 3px 0;}
   .note.crit{border-color:var(--critical);background:var(--crit-lo);}
   .note.warn{border-color:var(--warn);background:var(--warn-lo);}
+  .note.good{border-color:var(--good);background:var(--accent-lo);}
   .note .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
              font-weight:600;display:block;margin-bottom:5px;color:var(--accent);}
   .note.crit .lbl{color:var(--critical);}
   .note.warn .lbl{color:var(--warn);}
+  .note.good .lbl{color:var(--good);}
   .note p{margin:0;color:var(--text);font-size:.95rem;}
   .note p + p{margin-top:8px;}
 
@@ -217,7 +219,7 @@
             <tr><td><strong>Tailscale account</strong></td><td>Free tier is fine. Every Jetson and the VPS join one tailnet.</td></tr>
             <tr><td><strong>Jetson Orin Nano 8 GB</strong></td><td>Plus an NVMe per box — <strong>465 GB</strong> is what is fitted. Never record to microSD. See the retention note in step 08: 465 GB holds roughly <strong>2.4 days</strong> across 8 cameras, not the 3 days originally planned.</td></tr>
             <tr><td><strong>Telegram bot</strong></td><td>Token from @BotFather, and the chat ID alerts go to.</td></tr>
-            <tr><td><strong>Git remote</strong></td><td>Private. Deploys ship from a git tag, so the repo must be cloneable onto the VPS.</td></tr>
+            <tr><td><strong>Git remote</strong></td><td><code>github.com/bhavya152002/deerkha-drishti</code>. Deploys ship from a git tag, so the repo must be cloneable onto the VPS — once it is private, that needs a read-only token (step 01).</td></tr>
           </tbody>
         </table></div>
         <div class="note crit">
@@ -226,12 +228,21 @@
           <code class="inl">git archive</code>. With no commits you cannot deploy to a Jetson
           <em>or</em> clone onto the VPS.</p>
         </div>
-        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># laptop, in the repo</span>
+        <div class="note good">
+          <span class="lbl">Already done — this step is for reference and for later releases</span>
+          <p>The code is published at
+          <code class="inl">https://github.com/bhavya152002/deerkha-drishti.git</code> on branch
+          <code class="inl">master</code>, tagged <code class="inl">v1.0.1</code>. That is the tag
+          the VPS clones in step 01 and the tag <code class="inl">deploy.sh</code> ships to the
+          Jetsons. A GitLab mirror exists at
+          <code class="inl">gitlab.com/computer-vision644830/deerkha-drishti</code> but is not the
+          deployment source.</p>
+        </div>
+        <div class="code"><button class="copy">Copy</button><pre><span class="cmt"># laptop, in the repo -- how it was published, and how to cut the NEXT release</span>
 git add -A
-git commit -m "Initial fleet-ready release"
-git tag -a v1.0.0 -m "First deployment"
-git remote add origin <span class="ph">&lt;your-private-remote&gt;</span>
-git push -u origin master --tags</pre></div>
+git commit -m "<span class="ph">what changed</span>"
+git tag -a <span class="ph">v1.0.2</span> -m "<span class="ph">reason</span>"
+git push origin master --tags</pre></div>
         <div class="note warn">
           <span class="lbl">Check before that first commit</span>
           <p><code class="inl">standalone/env</code> holds a live Telegram token and database
@@ -295,28 +306,37 @@ tailscale ip -4          <span class="cmt"># note this address</span></pre></div
         <p>The installer reads <code class="inl">server/requirements.txt</code> and
         <code class="inl">server/schema.sql</code> from the clone, so it must be present first.</p>
         <div class="code"><button class="copy">Copy</button><pre>sudo apt-get update -qq &amp;&amp; sudo apt-get install -y -qq git
-git clone -b <span class="ph">&lt;tag&gt;</span> https://<span class="ph">&lt;token-name&gt;</span>:<span class="ph">&lt;token&gt;</span>@gitlab.com/<span class="ph">&lt;group&gt;/&lt;project&gt;</span>.git ~/deerkha
+git clone -b v1.0.1 https://<span class="ph">&lt;pat&gt;</span>@github.com/bhavya152002/deerkha-drishti.git ~/deerkha
 cd ~/deerkha &amp;&amp; git describe --tags &amp;&amp; ls server/schema.sql</pre></div>
+        <p class="sub">Both of those must succeed before you continue: <code class="inl">git
+        describe</code> should print <code class="inl">v1.0.1</code>, and
+        <code class="inl">schema.sql</code> must exist. If the repository is still public, drop the
+        <code class="inl">&lt;pat&gt;@</code> — no credential is needed.</p>
         <div class="note warn">
           <span class="lbl">Always clone the TAG, never the default branch</span>
-          <p>The repository holds several branches, and the host's default branch is whatever the
-          project was created with — not necessarily the one carrying this release. A bare
-          <code class="inl">git clone</code> silently checks that out, and the first symptom is the
-          installer reporting <code class="inl">schema.sql not found</code> after it has already
-          built Postgres. <code class="inl">-b &lt;tag&gt;</code> pins the exact reviewed code; the
-          <code class="inl">git describe</code> above is the check that it worked.</p>
+          <p>A bare <code class="inl">git clone</code> checks out whatever the host has set as the
+          default branch, which is not necessarily the one carrying this release — on the GitLab
+          mirror it is not. The first symptom is the installer reporting
+          <code class="inl">schema.sql not found</code>, <em>after</em> it has already built
+          Postgres. <code class="inl">-b v1.0.1</code> pins the exact reviewed commit, which is also
+          what makes a deploy reproducible and a rollback meaningful.</p>
         </div>
         <div class="note">
-          <span class="lbl">Private repository: use a read-only deploy token</span>
-          <p>GitLab will not accept your account password over HTTPS. In the project →
-          <strong>Settings → Repository → Deploy tokens</strong>, create one with the
-          <code class="inl">read_repository</code> scope only, and use its username and token in
-          the URL above. A deploy token is scoped to this one project and can be revoked on its
-          own, which an account token cannot.</p>
-          <p>The token ends up in <code class="inl">~/deerkha/.git/config</code> on the VPS. It is
-          read-only, so that is acceptable — but if you would rather it not persist, run
-          <code class="inl">git remote set-url origin https://gitlab.com/&lt;group&gt;/&lt;project&gt;.git</code>
-          once the clone finishes.</p>
+          <span class="lbl">Once the repository is private: a read-only credential</span>
+          <p>GitHub does not accept your account password over HTTPS. Create a
+          <strong>fine-grained personal access token</strong> — Settings → Developer settings →
+          Personal access tokens → Fine-grained — with <strong>Repository access</strong> limited to
+          this one repository and <strong>Contents: Read-only</strong>. Nothing else. Use it in
+          place of <code class="inl">&lt;pat&gt;</code> above.</p>
+          <p>The token then lives in <code class="inl">~/deerkha/.git/config</code> on the VPS. It is
+          read-only and single-repo, so that is a reasonable trade — but to keep it off disk, run
+          <code class="inl">git remote set-url origin https://github.com/bhavya152002/deerkha-drishti.git</code>
+          once the clone finishes. Re-supply the token the next time you pull.</p>
+          <p>The alternative, if you would rather have no token at all: add a
+          <strong>deploy key</strong> (repo → Settings → Deploy keys) using a keypair generated on
+          the VPS with <code class="inl">ssh-keygen -t ed25519</code>, and clone the
+          <code class="inl">git@github.com:</code> URL instead. Read-only by default, and revocable
+          without touching your account.</p>
         </div>
       </div>
     </div>
