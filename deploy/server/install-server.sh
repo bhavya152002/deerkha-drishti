@@ -216,8 +216,25 @@ say "schema"
 # idempotent, and a server whose database has no tables fails in confusing ways
 # (healthz is green because Postgres answers, but every request 500s).
 if [ -f "$REPO_DIR/server/schema.sql" ]; then
-    sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" -f "$REPO_DIR/server/schema.sql" \
-        >/dev/null && echo "    schema applied"
+    # Feed the file on STDIN rather than with psql -f.
+    #
+    # -f makes the POSTGRES user open the path, and the repo is normally cloned
+    # into a home directory -- /root/deerkha when you run this as root, which is
+    # mode 0700. postgres cannot traverse it, and psql fails with a bare
+    # "Permission denied" that reads like a database problem rather than a
+    # filesystem one. With a redirect, THIS shell (already root) opens the file
+    # and psql just reads stdin, so the repo's location and permissions stop
+    # mattering.
+    #
+    # No `&& echo` here either: under `set -e` a failure in the non-final part
+    # of an && list does NOT abort the script, so the original form swallowed
+    # this error and carried on to GRANT against tables that did not exist.
+    if ! sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" \
+            < "$REPO_DIR/server/schema.sql" >/dev/null; then
+        echo "    !! schema failed to apply -- stopping before anything depends on it."
+        exit 1
+    fi
+    echo "    schema applied"
     # Ownership of anything schema.sql created, then the edge's single privilege.
     sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" <<EOF >/dev/null
 DO \$\$ DECLARE r record; BEGIN
@@ -236,7 +253,7 @@ EOF
     echo "    ${DB_EDGE_USER} granted INSERT on detections and nothing else"
 else
     echo "    !! $REPO_DIR/server/schema.sql not found -- apply it by hand:"
-    echo "       sudo -u postgres psql -d ${DB_NAME} -f server/schema.sql"
+    echo "       sudo -u postgres psql -d ${DB_NAME} < server/schema.sql"
 fi
 
 # ------------------------------------------------------------------- app user --
