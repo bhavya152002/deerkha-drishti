@@ -63,9 +63,9 @@ chmod 600 "$AUTH"
 if [ -s "$AUTH" ]; then
   echo "    $(grep -c . "$AUTH") key(s) authorised for $SVC_USER"
 else
-  echo "    !! NO KEYS INSTALLED -- deploy.sh will fail with 'Permission denied'."
-  echo "       Fix from your laptop:  ssh-copy-id $SVC_USER@<tailscale-ip>"
-  echo "       or re-run:  DEPLOY_PUBKEY='ssh-ed25519 AAAA...' sudo -E bash /tmp/provision.sh"
+  echo "    no keys installed -- fine if you deploy ON this box with"
+  echo "    deploy/local-deploy.sh. Only the ssh-based deploy/deploy.sh needs a key."
+  echo "    To enable that later:  ssh-copy-id $SVC_USER@<tailscale-ip>"
 fi
 
 echo "==> directories"
@@ -83,8 +83,27 @@ fi
 
 echo "==> python venv"
 if [ ! -x "$ROOT/venv/bin/python3" ]; then
-  apt-get update -qq
-  apt-get install -y -qq python3-venv python3-dev
+  # A single broken third-party repo makes `apt-get update` exit non-zero even
+  # though every repo we actually need updated fine. Field boxes accumulate
+  # PPAs, so treating that as fatal aborts provisioning for an unrelated reason
+  # -- and it aborts it HERE, before the venv, sudoers, systemd unit and
+  # device.env exist, leaving a half-built box.
+  #
+  # The install below is the real test: if the packages resolve, the broken repo
+  # was irrelevant.
+  if ! apt-get update -qq; then
+    echo "    WARNING: apt-get update reported errors -- probably a broken"
+    echo "    third-party repo. Continuing; the package install is the real gate."
+    echo "    To find it:  grep -rn . /etc/apt/sources.list.d/ | grep -v '^.*:#'"
+  fi
+  if ! apt-get install -y -qq python3-venv python3-dev; then
+    echo "    !! could not install python3-venv / python3-dev."
+    echo "    If apt reported a broken repository above, remove it and re-run:"
+    echo "        grep -rn . /etc/apt/sources.list.d/"
+    echo "        sudo rm /etc/apt/sources.list.d/<the-offending-file>"
+    echo "        sudo apt-get update"
+    exit 1
+  fi
   # --system-site-packages is REQUIRED on JetPack: tensorrt, cv2 (with the
   # CUDA/GStreamer build) and torch come from the system image and cannot be
   # pip-installed into an isolated venv.
