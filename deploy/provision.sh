@@ -164,7 +164,7 @@ CONFIG_API_TOKEN=CHANGE_ME
 
 # The server's Tailscale name or IP. Prefer the MagicDNS name -- if the server
 # ever moves, an IP here means editing this file on every box in the fleet.
-# Verify it resolves ON THIS BOX before deploying:  getent hosts deerkha-vps
+# Verify it resolves ON THIS BOX before deploying:  getent hosts deerkha-server
 CONFIG_SERVER_URL=http://CHANGE_ME:8000
 
 # Until the egress rework lands, the edge still writes detections to Postgres

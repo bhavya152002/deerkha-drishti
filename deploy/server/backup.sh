@@ -14,7 +14,7 @@
 # a free second location. Pull from there rather than pushing from here -- a
 # compromised or wiped VPS then cannot destroy its own backups:
 #
-#   scp deerkha@deerkha-vps:/var/backups/deerkha/latest.dump D:\deerkha-backups\
+#   scp deerkha@deerkha-server:/var/backups/deerkha/latest.dump D:\deerkha-backups\
 #
 # Scale note: the database is well under a gigabyte and compresses hard, so
 # keeping many dumps is cheap. Revisit if detections ever grows past a few GB.

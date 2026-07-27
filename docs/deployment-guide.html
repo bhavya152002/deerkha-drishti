@@ -292,7 +292,7 @@ ssh deerkha-admin@<span class="ph">&lt;vps-ip&gt;</span> 'echo key login works'<
         <div class="code"><button class="copy">Copy</button><pre>curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 tailscale ip -4          <span class="cmt"># note this address</span></pre></div>
-        <p>In the Tailscale admin console, rename this machine to <code class="inl">deerkha-vps</code>
+        <p>In the Tailscale admin console, rename this machine to <code class="inl">deerkha-server</code>
         and make sure <strong>MagicDNS is enabled</strong>. Using the name rather than the IP means
         you can move the server later without editing every Jetson.</p>
       </div>
@@ -622,15 +622,15 @@ df -h /mnt/data                        <span class="cmt"># confirm ~465 GB</span
         <span class="where">Jetson</span>
         <div class="code"><button class="copy">Copy</button><pre>curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
-tailscale status | grep deerkha-vps    <span class="cmt"># want 'direct', not 'relay'</span>
-getent hosts deerkha-vps               <span class="cmt"># MagicDNS must resolve</span>
-curl -s http://deerkha-vps:8000/healthz</pre></div>
+tailscale status | grep deerkha-server    <span class="cmt"># want 'direct', not 'relay'</span>
+getent hosts deerkha-server               <span class="cmt"># MagicDNS must resolve</span>
+curl -s http://deerkha-server:8000/healthz</pre></div>
         <div class="note warn">
           <span class="lbl">If the name does not resolve but the IP pings</span>
           <p>On stock JetPack, <code class="inl">tailscaled</code> sometimes cannot take over
           <code class="inl">/etc/resolv.conf</code> under NetworkManager. Either fix DNS, or add a
           line to <code class="inl">/etc/hosts</code>:
-          <code class="inl">&lt;vps-tailscale-ip&gt; deerkha-vps</code>. Ugly but reliable, and it
+          <code class="inl">&lt;vps-tailscale-ip&gt; deerkha-server</code>. Ugly but reliable, and it
           keeps the hostname in <code class="inl">device.env</code> so the server can still move.</p>
         </div>
       </div>
@@ -701,7 +701,7 @@ ssh <span class="ph">&lt;user&gt;</span>@<span class="ph">&lt;jetson-tailscale-i
         <div class="code"><button class="copy">Copy</button><pre>sudo nano /etc/deerkha/device.env</pre></div>
         <div class="code"><button class="copy">Copy</button><pre>JETSON_DEVICE_ID=jetson-forest-01
 CONFIG_API_TOKEN=<span class="ph">&lt;device token from step 06&gt;</span>
-CONFIG_SERVER_URL=http://deerkha-vps:8000
+CONFIG_SERVER_URL=http://deerkha-server:8000
 
 <span class="cmt"># Until alerts route through the server, the edge still writes to Postgres</span>
 <span class="cmt"># directly. Use the deerkha_edge credential from step 02 -- it can only</span>
@@ -957,7 +957,7 @@ sudo /opt/deerkha-server/backup.sh --test-restore
 sudo /opt/deerkha-server/backup.sh --list</pre></div>
         <p>Pull a copy somewhere else regularly. Pulling rather than pushing means a compromised
         VPS cannot destroy its own backups:</p>
-        <div class="code"><button class="copy">Copy</button><pre>scp deerkha-admin@deerkha-vps:/var/backups/deerkha/latest.dump <span class="ph">&lt;local-path&gt;</span></pre></div>
+        <div class="code"><button class="copy">Copy</button><pre>scp deerkha-admin@deerkha-server:/var/backups/deerkha/latest.dump <span class="ph">&lt;local-path&gt;</span></pre></div>
       </div>
     </div>
 
