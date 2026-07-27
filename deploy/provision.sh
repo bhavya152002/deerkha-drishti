@@ -193,9 +193,19 @@ fi
 cat <<EOF
 
 Provisioned. Next:
-  1. edit /etc/deerkha/device.env   (device id + token from the dashboard)
-  2. from the office PC:  ./deploy/push-models.sh <device_id>
-  3. from the office PC:  ./deploy/deploy.sh <tag> --only <device_id>
 
-Check the NVMe is mounted at $STORAGE first:  df -h $STORAGE
+  1. CHECK THE NVMe IS ACTUALLY MOUNTED:
+         df -h $STORAGE
+     If that shows the root filesystem rather than a separate ~465GB device,
+     recording will go to the eMMC and wear it out within a year. This script
+     CREATES the directory either way, so its existence proves nothing.
+
+  2. edit /etc/deerkha/device.env   (device id + token from the dashboard)
+
+  3. put the TensorRT engines in $ROOT/models  (they are not in git)
+
+  4. deploy, whichever way you work:
+         ON this box:      sudo bash deploy/local-deploy.sh <tag>
+         over ssh:         ./deploy/push-models.sh <device_id>
+                           ./deploy/deploy.sh <tag> --only <device_id>
 EOF
