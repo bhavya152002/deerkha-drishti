@@ -295,8 +295,29 @@ tailscale ip -4          <span class="cmt"># note this address</span></pre></div
         <p>The installer reads <code class="inl">server/requirements.txt</code> and
         <code class="inl">server/schema.sql</code> from the clone, so it must be present first.</p>
         <div class="code"><button class="copy">Copy</button><pre>sudo apt-get update -qq &amp;&amp; sudo apt-get install -y -qq git
-git clone <span class="ph">&lt;your-private-remote&gt;</span> ~/deerkha
-cd ~/deerkha &amp;&amp; git checkout v1.0.0</pre></div>
+git clone -b <span class="ph">&lt;tag&gt;</span> https://<span class="ph">&lt;token-name&gt;</span>:<span class="ph">&lt;token&gt;</span>@gitlab.com/<span class="ph">&lt;group&gt;/&lt;project&gt;</span>.git ~/deerkha
+cd ~/deerkha &amp;&amp; git describe --tags &amp;&amp; ls server/schema.sql</pre></div>
+        <div class="note warn">
+          <span class="lbl">Always clone the TAG, never the default branch</span>
+          <p>The repository holds several branches, and the host's default branch is whatever the
+          project was created with — not necessarily the one carrying this release. A bare
+          <code class="inl">git clone</code> silently checks that out, and the first symptom is the
+          installer reporting <code class="inl">schema.sql not found</code> after it has already
+          built Postgres. <code class="inl">-b &lt;tag&gt;</code> pins the exact reviewed code; the
+          <code class="inl">git describe</code> above is the check that it worked.</p>
+        </div>
+        <div class="note">
+          <span class="lbl">Private repository: use a read-only deploy token</span>
+          <p>GitLab will not accept your account password over HTTPS. In the project →
+          <strong>Settings → Repository → Deploy tokens</strong>, create one with the
+          <code class="inl">read_repository</code> scope only, and use its username and token in
+          the URL above. A deploy token is scoped to this one project and can be revoked on its
+          own, which an account token cannot.</p>
+          <p>The token ends up in <code class="inl">~/deerkha/.git/config</code> on the VPS. It is
+          read-only, so that is acceptable — but if you would rather it not persist, run
+          <code class="inl">git remote set-url origin https://gitlab.com/&lt;group&gt;/&lt;project&gt;.git</code>
+          once the clone finishes.</p>
+        </div>
       </div>
     </div>
   </section>
