@@ -99,7 +99,12 @@ say "ssh hardening"
 # without first confirming your key works, or you will lock yourself out.
 if grep -q '^\s*PasswordAuthentication\s\+yes' /etc/ssh/sshd_config 2>/dev/null \
    || ! grep -q '^\s*PasswordAuthentication' /etc/ssh/sshd_config 2>/dev/null; then
-    if [ -s /root/.ssh/authorized_keys ] || [ -s "/home/${APP_USER}/.ssh/authorized_keys" ]; then
+    # Check EVERY home directory, not just root and the service account. The
+    # admin user you actually log in as (deerkha-admin in the guide) is neither
+    # of those, so a narrower check finds no key, skips the hardening, and
+    # leaves password auth on while reporting nothing useful.
+    if [ -s /root/.ssh/authorized_keys ] || \
+       compgen -G "/home/*/.ssh/authorized_keys" >/dev/null 2>&1; then
         sed -i 's/^\s*#\?\s*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
         systemctl reload ssh 2>/dev/null || systemctl reload sshd
         echo "    password auth disabled (an authorized_keys file was found)"
