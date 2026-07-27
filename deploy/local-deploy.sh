@@ -35,7 +35,11 @@ set -uo pipefail
 ROOT=/opt/deerkha
 SVC=deerkha-drishti
 SVC_USER=deerkha
-SRC="${DD_SRC:-$HOME/deerkha-src}"
+# Default to the clone this script is IN -- it lives at <clone>/deploy/, so the
+# parent of its own directory is the repository root. Deriving it from $HOME was
+# wrong twice over: sudo resets HOME to /root, and the clone need not be in a
+# home directory at all.
+SRC="${DD_SRC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"
 LOG=/var/log/deerkha/deerkha.log
