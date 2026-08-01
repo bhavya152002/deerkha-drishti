@@ -9,6 +9,11 @@ Usage (from server/ with .env configured and schema.sql already run):
 Re-running wipes that device's config rows and re-seeds (the device_token is
 preserved if the device already exists, so the Jetson keeps working). Prints the
 device_token to put in the Jetson's env as CONFIG_API_TOKEN.
+
+Re-seeding a device that has been edited from the dashboard is REFUSED unless
+--force is passed: the wipe would restore the hardcoded seed_data values (ROI
+polygons and ignore zones included) over the operator's edits, and the edge would
+apply them within one poll. See _assert_safe_to_wipe().
 """
 
 import argparse
@@ -128,11 +133,44 @@ def build_children(device_id: str) -> list:
     return rows
 
 
-def seed(device_id: str, display_name: str, tailscale_ip: str | None):
+class SeedRefused(RuntimeError):
+    """Raised instead of silently reverting an operator's dashboard edits."""
+
+
+def _assert_safe_to_wipe(db, device_id: str, force: bool):
+    """Refuse to re-seed a device that has been edited from the dashboard.
+
+    _wipe_children() deletes every cfg_cameras row and build_children() re-inserts
+    seed_data.IGNORE_ZONES_NATIVE, which hardcodes CAM 3's and CAM 4's ignore
+    polygons. So an innocent-looking re-seed silently RESURRECTS zones an operator
+    deleted -- and because it goes through the normal write path, config_version
+    bumps and the edge dutifully applies the old polygons within one poll. There
+    is nothing in the logs to suggest what happened.
+
+    cfg_audit_log is the tell: every dashboard edit writes a row (see
+    app/service.py:bump_and_audit), so a non-empty log means somebody has
+    configured this device by hand since it was seeded.
+    """
+    if force:
+        return
+    edits = db.query(models.AuditLog).filter(models.AuditLog.device_id == device_id).count()
+    if edits:
+        raise SeedRefused(
+            f"Refusing to re-seed '{device_id}': it has {edits} dashboard edit(s) in "
+            f"cfg_audit_log.\n"
+            f"Re-seeding wipes cfg_cameras and restores the hardcoded values in "
+            f"seed_data.py -- including CAM 3's and CAM 4's ignore zones -- which would "
+            f"silently undo those edits on the device within one config poll.\n"
+            f"If that is genuinely what you want, re-run with --force."
+        )
+
+
+def seed(device_id: str, display_name: str, tailscale_ip: str | None, force: bool = False):
     with session_scope() as db:
         existing = db.get(models.Device, device_id)
         token = existing.device_token if existing else secrets.token_urlsafe(32)
         if existing is not None:
+            _assert_safe_to_wipe(db, device_id, force)
             _wipe_children(db, device_id)
             db.delete(existing)
             db.flush()
@@ -158,5 +196,10 @@ if __name__ == "__main__":
     ap.add_argument("--device-id", default="jetson-forest-01")
     ap.add_argument("--name", default="Forest Site 01")
     ap.add_argument("--tailscale-ip", default=None)
+    ap.add_argument("--force", action="store_true",
+                    help="re-seed even if the device has dashboard edits, discarding them")
     args = ap.parse_args()
-    seed(args.device_id, args.name, args.tailscale_ip)
+    try:
+        seed(args.device_id, args.name, args.tailscale_ip, force=args.force)
+    except SeedRefused as e:
+        raise SystemExit(f"\n{e}\n")

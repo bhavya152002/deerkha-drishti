@@ -259,19 +259,37 @@ CLIP_IMG_INPUT_SIZE = _boot_cfg["paths"]["clip_img_input_size"]
 IGNORE_ZONES_ENABLED = _boot_cfg["flags"]["ignore_zones_enabled"]
 
 def _build_roi_zones_from_cfg(snap):
-    """{roi_zone_key -> [np.array(polygon)]} from the config's per-camera ignore
-    zones (native camera resolution). Key is cam_name without spaces, matching
+    """{roi_zone_key -> ([np.array(polygon)], (drawn_w, drawn_h) | None)} from the
+    config's per-camera ignore zones. Polygons are in the coordinate space they
+    were drawn in; the second element records that space so the per-camera
+    rebuild can scale correctly. Key is cam_name without spaces, matching
     CameraStream.roi_zone_key. Replaces the old roi_zones.json loader -- ignore
-    zones are now server-managed."""
+    zones are now server-managed.
+
+    A camera with zero zones is absent from the dict, and _rebuild_ignore_zones
+    reads it as []; that is how a deletion clears. Do NOT change the caller to
+    dict.update() this into an existing mapping -- the whole point is that
+    _on_config_change REPLACES the dict, so removed keys really disappear."""
     zones = {}
+    counts = []
     for c in snap["cameras"]:
         key = c["cam_name"].replace(" ", "")
         polys = c.get("ignore_zones") or []
+        counts.append(f"{c['cam_name']}={len(polys)}")
         if polys:
-            zones[key] = [np.array(p, dtype=np.int32) for p in polys]
-    total = sum(len(v) for v in zones.values())
-    if total:
-        log.info(f"[ROI] Loaded {total} ignore polygon(s) across {len(zones)} camera(s) from config.")
+            # Carry the resolution the polygons were DRAWN at alongside them.
+            # The editor draws at ignore_drawn_at_res, which is not necessarily
+            # this stream's native size -- see _rebuild_ignore_zones.
+            src = c.get("ignore_drawn_at_res") or None
+            if src and not (src[0] and src[1]):
+                src = None
+            zones[key] = ([np.array(p, dtype=np.int32) for p in polys],
+                          (int(src[0]), int(src[1])) if src else None)
+    # Logged unconditionally, per camera. The old line fired only when the total
+    # was non-zero and never named a camera -- so DELETING the last zone, the one
+    # change an operator most wants to confirm landed, produced no output at all
+    # and was indistinguishable from the config never arriving.
+    log.info("[ROI] ignore zones: %s", " ".join(counts) if counts else "(no cameras)")
     return zones
 
 def _scale_polys(polys, from_w, from_h, to_w, to_h):
@@ -968,6 +986,9 @@ class CameraStream:
 
         self.fps = float(STORE.get("recording.fps", 10.0))
         self._cfg_generation = STORE.generation
+        # Generation whose reload_dynamic() already logged a failure, so a
+        # camera that keeps failing warns once per config change, not per frame.
+        self._reload_failed_gen = None
         self._last_frame_ts = 0.0
         self.frame = np.zeros((H, W, 3), np.uint8)
         self.static_back = None
@@ -1021,9 +1042,18 @@ class CameraStream:
         return AsyncVideoWriter(fn, fourcc, self.fps, (width, height))
 
     def _rebuild_ignore_zones(self):
-        _raw_zone_polys = _roi_zones.get(self.roi_zone_key, [])
+        _entry = _roi_zones.get(self.roi_zone_key)
+        _raw_zone_polys, _drawn_at = _entry if _entry else ([], None)
+        # Scale from the resolution the zones were DRAWN at, not from this
+        # stream's live frame size. Those are the same thing only when the camera
+        # happens to run at ignore_drawn_at_res; when it doesn't, scaling from
+        # orig_w/orig_h (as this used to) silently offsets every polygon with no
+        # error -- while the detection ROI a few lines up has always honoured its
+        # own roi_drawn_at_res. Fall back to the frame size for a blob that
+        # predates the field.
+        src_w, src_h = _drawn_at if _drawn_at else (self.orig_w, self.orig_h)
         self.ignore_zone_polys_detres = (
-            _scale_polys(_raw_zone_polys, self.orig_w, self.orig_h, DETECTION_RES[0], DETECTION_RES[1])
+            _scale_polys(_raw_zone_polys, src_w, src_h, DETECTION_RES[0], DETECTION_RES[1])
             if IGNORE_ZONES_ENABLED else []
         )
         self.rf_input_mask = (
@@ -1042,9 +1072,18 @@ class CameraStream:
             self.roi_mask = ROI_MASKS.get(self.name, self.roi_mask)
             self._rebuild_ignore_zones()
         except Exception as e:
-            log.warning(f"[{self.name}] reload_dynamic failed: {e}")
-        finally:
-            self._cfg_generation = STORE.generation
+            # Deliberately does NOT stamp _cfg_generation. This used to be a
+            # `finally`, which marked the camera up to date even when the rebuild
+            # threw -- so one transient failure stranded it on its previous ROI
+            # and ignore zones until the NEXT config change, however far off that
+            # was. Leaving the stamp alone lets the generation check in the
+            # capture/inference loops retry. Log once per generation so a
+            # persistent failure can't flood the log at frame rate.
+            if self._reload_failed_gen != STORE.generation:
+                self._reload_failed_gen = STORE.generation
+                log.warning(f"[{self.name}] reload_dynamic failed (will retry): {e}")
+            return
+        self._cfg_generation = STORE.generation
 
     def start(self):
         threading.Thread(target=self._capture_loop, daemon=True, name=f"cap-{self.name}").start()
@@ -1698,12 +1737,21 @@ def _on_config_change(new_blob, old_blob):
     SEND_FALLBACK_TELEGRAM = c["flags"]["send_fallback_telegram"]
     CROSS_SPECIES_FALLBACK = dict(c["clip"]["cross_species"])
 
-    # ROI + ignore zones (DETECTION_RES is restart-fixed -> mask shapes stable)
+    # ROI + ignore zones (DETECTION_RES is restart-fixed -> mask shapes stable).
+    # Two INDEPENDENT try blocks on purpose. These shared one, and the detection
+    # ROI is built first -- _build_roi_structures divides by each camera's
+    # roi_drawn_at_res, so a zero or None on ANY camera in the blob raised before
+    # the ignore-zone line ever ran. Every camera then silently kept its previous
+    # zones for the life of the process while the rest of the config applied
+    # normally, which reads exactly like "the server change never arrived".
     try:
         ROI_POLYGONS_RAW, ROI_MASKS = _build_roi_structures(c)
+    except Exception:
+        log.exception("[CONFIG] detection-ROI rebuild FAILED -- cameras keep their previous ROI")
+    try:
         _roi_zones = _build_roi_zones_from_cfg(c) if IGNORE_ZONES_ENABLED else {}
     except Exception:
-        log.exception("[CONFIG] ROI rebuild FAILED -- cameras keep their previous zones")
+        log.exception("[CONFIG] ignore-zone rebuild FAILED -- cameras keep their previous zones")
 
     # CLIP text cache: rebuild only when prompt-related content actually changed
     new_prompts = {k: list(v) for k, v in c["clip"]["prompts"].items()}

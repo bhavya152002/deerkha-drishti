@@ -61,13 +61,16 @@ Clone on the Jetson is at `~/deerkha-src`. **Deploys pin a tag — never a branc
 
 | Component | Running | Latest tag |
 |---|---|---|
-| Jetson (`edge/`) | **v1.2.1** | v1.2.1 |
-| Server (`server/`) | **v1.2.1** | v1.2.1 |
+| Jetson (`edge/`) | **v1.2.2** | v1.2.2 |
+| Server (`server/`) | **v1.2.2** | v1.2.2 |
 
 Both deployed 2026-08-01. The edge deploy is health-gated and self-rolls-back; the server deploy is
 not — it was verified by hand with `healthz`. Rollback: `sudo bash deploy/local-deploy.sh --rollback`
-on the Jetson (`v1.1.7` is still staged); on the server, repoint the `current` symlink at
-`/opt/deerkha-server/releases/v1.0.8`.
+on the Jetson (`v1.2.1` is still staged); on the server, repoint the `current` symlink at
+`/opt/deerkha-server/releases/v1.2.1`.
+
+`v1.2.2` is an **edge fix for hot-applied config** — see "Deploying → ignore zones and ROI". The
+server half only hardens `seed.py`; nothing in the running service changed.
 
 `v1.2.0` changed server-side **defaults only** — the edge took those over the config poll, with no
 release needed. `v1.2.1` is different: it is an **edge code fix** for the deterrence relay, and the
@@ -176,6 +179,44 @@ video storage.
 
 `deploy/deploy.sh` is the ssh equivalent for the fleet, with canary-first rollout that halts on
 failure. Switch to it once there is more than one box.
+
+### Ignore zones and ROI — fixed in v1.2.2
+
+Deleting cam4's ignore zones from the ROI editor saved correctly, the edge fetched and applied the
+new blob (`[ROI] Loaded 1 ignore polygon(s)` at 17:48), and the polygon **stayed on screen and kept
+suppressing detections anyway** — with nothing logged on either side.
+
+The cause was a race in `ConfigStore.apply()`. `generation` was bumped *inside the lock*, before the
+listener loop ran `_on_config_change`, which is what actually rebuilds `_roi_zones`. The camera
+threads spin on `STORE.generation != self._cfg_generation` at frame rate (`main.py`
+`_capture_loop`/`_inference_loop`), so in that window a camera would see the new generation, call
+`reload_dynamic()`, re-read the **old** globals, and stamp itself current — after which it never
+reloads again. The listener then rebuilt `_roi_zones` correctly, for nobody. Reproduced
+deterministically: on v1.2.1 all 8 camera threads latch stale state; after the fix, none.
+
+`generation` is now published **after** the listeners, so "generation changed" means "derived state
+is ready to re-read". This affected every hot-applied per-camera value, not just zones — motion
+sliders and the detection ROI took the same path.
+
+Four related defects were fixed alongside it:
+
+- **A cleared zone logged nothing.** The `[ROI]` line only printed when the total was non-zero and
+  never named a camera, so deleting the last zone looked identical to the config never arriving. It
+  now prints per camera on every rebuild: `[ROI] ignore zones: CAM 1=0 CAM 2=2 CAM 3=1 CAM 4=0`.
+- **A detection-ROI failure silently stranded the ignore zones.** Both rebuilds shared one `try`
+  with ROI first, and `_build_roi_structures` divides by each camera's `roi_drawn_at_res` — so a
+  zero on *any* camera skipped the zone rebuild for *all* of them. Now two independent blocks.
+- **A failed per-camera reload was never retried.** `reload_dynamic()`'s `finally` stamped the
+  generation even when the rebuild threw. It now stamps only on success, and warns once per
+  generation so a persistent failure cannot flood the log at frame rate.
+- **`ignore_drawn_at_res` was shipped but ignored.** The edge scaled zones from the live stream size
+  instead of the resolution they were drawn at, silently offsetting them whenever the two differ.
+  The detection ROI beside it always honoured its own `roi_drawn_at_res`.
+
+Server side, `seed.py` now **refuses to re-seed a device that has `cfg_audit_log` rows** unless
+`--force`. A re-run wipes `cfg_cameras` and restores `seed_data.IGNORE_ZONES_NATIVE`, which hardcodes
+CAM 3's and CAM 4's polygons — so it would silently resurrect exactly the zones an operator deleted,
+through the normal write path, bumping `config_version` so the edge applies them within one poll.
 
 ### The deterrence relay — fixed in v1.2.1
 

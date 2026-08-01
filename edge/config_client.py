@@ -18,7 +18,9 @@ Env used (all optional except when polling):
 Public surface used by the main script:
     STORE                       -- the singleton ConfigStore
     STORE.snapshot              -- current blob dict (atomic reference read)
-    STORE.generation            -- monotonic int; bumps on every accepted swap
+    STORE.generation            -- monotonic int; bumps on every accepted swap,
+                                   AFTER the listeners have rebuilt derived state,
+                                   so "generation changed" means "safe to re-read"
     STORE.version               -- current config_version string
     STORE.get("a.b.c", default) -- dotted-path read off the snapshot
     STORE.register_listener(fn) -- fn(new_blob, old_blob) after each swap
@@ -299,7 +301,6 @@ class ConfigStore:
                 self.pending_restart_fields = sorted(set(self.pending_restart_fields) | set(fields))
             self.pending_restart = bool(new_blob.get("restart_required")) or bool(self.pending_restart_fields)
             self._snapshot = new_blob
-            self.generation += 1
             self.version = new_blob.get("config_version", "unknown")
         for fn in self._listeners:
             try:
@@ -308,6 +309,26 @@ class ConfigStore:
                 # A listener that throws leaves the config PARTIALLY applied --
                 # always worth a full traceback.
                 log.exception("[CONFIG] listener failed; config may be partially applied")
+        # Publish the generation LAST, after the listeners have rebuilt the
+        # derived state. This used to be bumped inside the lock above, which
+        # opened a race the edge lost silently and permanently:
+        #
+        #   1. generation += 1
+        #   2. a camera thread (main.py _capture_loop/_inference_loop spin at
+        #      frame rate) sees the new generation, calls reload_dynamic(), and
+        #      re-reads the module globals -- which the listener has NOT rebuilt
+        #      yet -- so it picks up the OLD ROI/ignore zones ...
+        #   3. ... and stamps itself current at this generation.
+        #   4. the listener then rebuilds _roi_zones correctly, but every camera
+        #      already considers this generation applied and never reloads again.
+        #
+        # Net effect: a deleted ignore zone stayed on screen and kept suppressing
+        # detections until the process restarted, with the config correctly
+        # applied on both sides and nothing logged. The counter means "derived
+        # state is ready for this snapshot", so it must be published after it is.
+        # Bumped even if a listener threw -- leaving it unbumped would freeze
+        # every camera on its previous derived state forever, which is worse.
+        self.generation += 1
         log.info(f"[CONFIG] applied version {self.version} (gen {self.generation})"
                  + (f"; PENDING RESTART: {self.pending_restart_fields}" if self.pending_restart_fields else ""))
         return True
