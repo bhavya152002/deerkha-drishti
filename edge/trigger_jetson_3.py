@@ -10,10 +10,20 @@ import threading
 import os
 import pygame
 
-# NOTE: this module calls init_relay() at IMPORT time (bottom of file), so these
-# first few lines are the earliest output the process produces. They used to be
-# print() to stdout -- block-buffered when stdout isn't a TTY, so under systemd
-# or a redirect they could sit in an 8 KB buffer and be LOST on a crash. That is
+# NOTE: importing this module does NOT touch hardware. The caller must invoke
+# init_hardware(cfg["deterrence"]) once, as early as possible, with the boot
+# config snapshot -- see main.py, which calls it the moment the snapshot exists.
+#
+# It used to run init_relay() at import time, which made the relay mode, GPIO
+# pins and USB port UNCONFIGURABLE: the import happens before config_client is
+# even imported, so the server-managed values in cfg_deterrence_global could
+# never be read. The panel's "Relay mode (restart)" was a dead control -- a box
+# set to 'gpio' still fired the USB relay, because the module was hardcoded to
+# 'both' on every path, restart included.
+#
+# Logging is still the first thing set up here: these lines used to be print()
+# to stdout -- block-buffered when stdout isn't a TTY, so under systemd or a
+# redirect they could sit in an 8 KB buffer and be LOST on a crash. That is
 # precisely the output you need when the deterrent doesn't fire. The main script
 # configures logging before importing this module, so these land in the file.
 log = logging.getLogger("DHEERKHA.deterrence")
@@ -33,8 +43,11 @@ except Exception as e:
     _SERIAL_AVAILABLE = False
 
 # =========================================================
-# CONFIG -- TOGGLE THIS
+# CONFIG -- FALLBACK DEFAULTS ONLY
 # =========================================================
+# Everything in this block is overwritten by init_hardware() from the server
+# config before any hardware is touched. The literals below only apply if the
+# caller never calls init_hardware(), or passes an empty blob.
 RELAY_MODE = "both"     # "gpio"  |  "usb"  |  "both"
 
 # ---- Audio Playback Strategy ----
@@ -114,6 +127,11 @@ _hw_lock = threading.Lock()
 _gpio_ready = False
 _usb_serial = None
 _usb_ready = False
+# Relay settings actually in force on the hardware, captured by init_hardware().
+# apply_config() diffs incoming config against this to detect a restart-class
+# change that the running process cannot honor, and says so out loud.
+_relay_boot_sig = None
+_hw_initialized = False
 
 # =========================================================
 # GPIO BACKEND
@@ -201,6 +219,18 @@ def init_relay():
         if not (gpio_ok or usb_ok):
             log.error("RELAY_MODE='both' but NEITHER backend initialized -- "
                       "DETERRENCE HARDWARE IS DEAD.")
+        elif not gpio_ok:
+            # Half-dead used to be SILENT: set_relays() returns
+            # gpio_result or usb_result, so one working backend masks the other
+            # completely and the box looks healthy while half the deterrent
+            # never fires. Say it once, loudly, at the only point we know.
+            log.error("RELAY_MODE='both' but the GPIO backend is DOWN -- only the "
+                      "USB relay will fire. Check that the service user is in the "
+                      "'gpio' group and that Jetson.GPIO is installed in the venv.")
+        elif not usb_ok:
+            log.error("RELAY_MODE='both' but the USB backend is DOWN -- only the "
+                      f"GPIO relay will fire. Check {USB_RELAY_PORT} and that the "
+                      "service user is in the 'dialout' group.")
         return gpio_ok or usb_ok
     else:
         log.error(f"Unknown RELAY_MODE '{RELAY_MODE}'.")
@@ -222,6 +252,20 @@ def all_off():
     for _ in range(2):
         set_relays(False)
         time.sleep(0.1)
+
+def relay_health():
+    """One-line backend status for the heartbeat, e.g. 'relay=both gpio:ok usb:down'.
+    A backend that is not part of the current mode reports '-' rather than 'down',
+    so an intentionally unused backend never looks like a fault."""
+    if not _hw_initialized:
+        return "relay=uninit"
+    gpio = "ok" if _gpio_ready else "down"
+    usb = "ok" if _usb_ready else "down"
+    if RELAY_MODE == "gpio":
+        usb = "-"
+    elif RELAY_MODE == "usb":
+        gpio = "-"
+    return f"relay={RELAY_MODE} gpio:{gpio} usb:{usb}"
 
 # =========================================================
 # DYNAMIC MULTI-TRACK AUDIO ENGINE
@@ -361,16 +405,127 @@ def stop_deterrence():
     _audio_active = False
     all_off()
 
+def _relay_sig(dcfg):
+    """The restart-class slice of the deterrence config: everything bound once, by
+    init_hardware(), before the backends are opened. Used both to apply the config
+    at boot and to detect -- later, on a live poll -- that the server has moved on
+    from what this process is actually running."""
+    gpio = (dcfg.get("gpio") or {})
+    usb = (dcfg.get("usb") or {})
+    # Normalized, so the drift check below compares MEANING, not spelling: 'a00101a2'
+    # and 'A0 01 01 A2' are the same command and must not look like a pending change.
+    def _hex(v, default):
+        return str(v if v is not None else default).strip().replace(" ", "").upper()
+    return {
+        "relay_mode": str(dcfg.get("relay_mode", RELAY_MODE)).strip().lower(),
+        "ch1_pin": int(gpio.get("ch1_pin", RELAY_CH1_PIN)),
+        "ch2_pin": int(gpio.get("ch2_pin", RELAY_CH2_PIN)),
+        "active_low": bool(gpio.get("active_low", RELAY_ACTIVE_LOW)),
+        "port": str(usb.get("port", USB_RELAY_PORT)).strip(),
+        "baud": int(usb.get("baud", USB_RELAY_BAUD)),
+        "on_cmd_hex": _hex(usb.get("on_cmd_hex"), USB_RELAY_ON_CMD.hex()),
+        "off_cmd_hex": _hex(usb.get("off_cmd_hex"), USB_RELAY_OFF_CMD.hex()),
+    }
+
+
+def _parse_hex_cmd(raw, fallback, what):
+    """'A00101A2' -> b'\\xa0\\x01\\x01\\xa2'. A typo in this field on the admin page
+    must not take the USB relay down, so a bad value keeps the working default."""
+    try:
+        b = bytes.fromhex(str(raw).strip().replace(" ", ""))
+        if not b:
+            raise ValueError("empty")
+        return b
+    except Exception as e:
+        log.error(f"USB {what} command {raw!r} is not valid hex ({e}) -- "
+                  f"keeping {fallback.hex().upper()}")
+        return fallback
+
+
+def init_hardware(dcfg):
+    """Bind the restart-class relay settings from the server config, then open the
+    relay backends and the audio engine. Call this ONCE, as early as the boot
+    config snapshot exists -- before that snapshot there is nothing to configure
+    from, and this module deliberately touches no hardware at import.
+
+    Everything bound here is fixed for the process lifetime: the GPIO pins are
+    exported and the serial port is opened against these values. A later change on
+    the server is reported by apply_config() and takes effect on restart."""
+    global RELAY_MODE, RELAY_CH1_PIN, RELAY_CH2_PIN, RELAY_ACTIVE_LOW
+    global USB_RELAY_PORT, USB_RELAY_BAUD, USB_RELAY_ON_CMD, USB_RELAY_OFF_CMD
+    global _relay_boot_sig, _hw_initialized
+
+    if _hw_initialized:
+        log.warning("init_hardware() called twice -- ignoring the second call.")
+        return
+    _hw_initialized = True
+
+    # A malformed value here (non-numeric pin or baud) must not leave the box with
+    # NO deterrent at all -- fall back to the shipped defaults and say so.
+    try:
+        sig = _relay_sig(dcfg or {})
+    except Exception:
+        log.exception("Relay config is malformed -- falling back to built-in defaults")
+        sig = _relay_sig({})
+
+    if sig["relay_mode"] not in ("gpio", "usb", "both"):
+        log.error(f"Unknown relay_mode {sig['relay_mode']!r} from config -- "
+                  f"falling back to {RELAY_MODE!r}.")
+        sig["relay_mode"] = RELAY_MODE
+
+    RELAY_MODE = sig["relay_mode"]
+    RELAY_CH1_PIN = int(sig["ch1_pin"])
+    RELAY_CH2_PIN = int(sig["ch2_pin"])
+    RELAY_ACTIVE_LOW = bool(sig["active_low"])
+    USB_RELAY_PORT = str(sig["port"])
+    USB_RELAY_BAUD = int(sig["baud"])
+    USB_RELAY_ON_CMD = _parse_hex_cmd(sig["on_cmd_hex"], USB_RELAY_ON_CMD, "ON")
+    USB_RELAY_OFF_CMD = _parse_hex_cmd(sig["off_cmd_hex"], USB_RELAY_OFF_CMD, "OFF")
+    _relay_boot_sig = sig
+
+    log.info(f"Deterrence hardware config: mode={RELAY_MODE}, "
+             f"gpio pins={RELAY_CH1_PIN}/{RELAY_CH2_PIN} "
+             f"({'active-low' if RELAY_ACTIVE_LOW else 'active-high'}), "
+             f"usb={USB_RELAY_PORT}@{USB_RELAY_BAUD}")
+
+    init_relay()
+    if init_audio():
+        threading.Thread(target=_play_audio_loop, daemon=True,
+                         name="deterrence-audio").start()
+
+
 def apply_config(dcfg):
     """Live-apply server-managed deterrence config. TARGET_CONFIG (per-class
     action + audio files), AUDIO_PLAYBACK_MODE and the BLINK_* timings update
     immediately -- the audio and blink loops re-read these globals each iteration.
-    Relay MODE / GPIO pins / USB port are bound at init_relay() import time and
-    are RESTART-class (ignored here)."""
+
+    Relay mode / GPIO pins / USB port are bound once by init_hardware() and are
+    RESTART-class: the pins are already exported and the serial port already open,
+    so they cannot be swapped under a running blink loop. They are not applied
+    here -- but a change IS reported, because a silently ignored relay-mode change
+    is exactly the failure this module used to have."""
     global TARGET_CONFIG, AUDIO_PLAYBACK_MODE
     global BLINK_TOTAL_DURATION, BLINK_ACTIVE_PHASE, BLINK_REST_PHASE, BLINK_INTERVAL
     if not dcfg:
         return
+
+    # Isolated: _relay_sig() coerces types, so a garbage pin or baud in the config
+    # raises here. That must not stop the targets and blink timings below from
+    # applying -- reporting a restart-class change is strictly less important than
+    # keeping the live-appliable config flowing.
+    if _relay_boot_sig is not None:
+        try:
+            drift = {k: (v, _relay_boot_sig[k])
+                     for k, v in _relay_sig(dcfg).items() if v != _relay_boot_sig[k]}
+            if drift:
+                log.warning(
+                    "Relay config changed on the server but CANNOT be hot-applied; this "
+                    "process is still running the boot values. Restart to pick them up: "
+                    + ", ".join(f"{k}: running={old!r} server={new!r}"
+                                for k, (new, old) in drift.items()))
+        except Exception:
+            log.exception("Relay drift check failed -- continuing with the live config")
+
     with _hw_lock:
         targets = dcfg.get("targets")
         if isinstance(targets, dict):
@@ -392,8 +547,8 @@ def apply_config(dcfg):
              f"audio={AUDIO_PLAYBACK_MODE}, blink_total={BLINK_TOTAL_DURATION}s")
 
 # =========================================================
-# MODULE INIT -- runs once on import
+# NO MODULE INIT -- the caller owns it
 # =========================================================
-init_relay()
-if init_audio():
-    threading.Thread(target=_play_audio_loop, daemon=True).start()
+# Importing this module must not open a serial port, export a GPIO pin or grab
+# the audio device. init_hardware(cfg["deterrence"]) does all three, and only the
+# caller knows when the config snapshot it needs is available.

@@ -62,7 +62,20 @@ async function saveGlobal() {
     else if (t === "bool") body[k] = el.value === "true";
     else body[k] = el.value;
   });
-  await saved(apiPut(`/api/admin/devices/${DEV}/deterrence`, body));
+  // A relay-class change (mode / pins / USB port) cannot be hot-applied: the
+  // edge binds those once at boot. The API flags the device for restart, and
+  // the operator needs to know the box is about to bounce -- a plain "Saved"
+  // reads as "already in effect", which it is not.
+  let res;
+  try {
+    res = await apiPut(`/api/admin/devices/${DEV}/deterrence`, body);
+  } catch (e) {
+    toast("Error: " + e.message, true);
+    return;
+  }
+  toast(res && res.restart_required
+    ? "Saved -- relay settings changed, the device will restart to apply them"
+    : "Saved");
 }
 async function saveTarget(cls) {
   const action = document.getElementById("a_"+cls).value;

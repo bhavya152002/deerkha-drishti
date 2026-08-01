@@ -137,6 +137,38 @@ video storage.
 `deploy/deploy.sh` is the ssh equivalent for the fleet, with canary-first rollout that halts on
 failure. Switch to it once there is more than one box.
 
+**The GPIO relay has never fired on `jetson-forest-01`, and a deploy alone will not fix it.**
+Confirmed on the box 2026-08-01. Two independent blockers stack, and Jetson.GPIO hits them in this
+order at import — so fixing only the first just reveals the second:
+
+1. **Permissions.** `/dev/gpiochip*` is `root:gpio 0660` and the `deerkha` service user was not in
+   the `gpio` group (`gpio.py:33`). `provision.sh` now adds it.
+2. **Board detection.** The board reports `nvidia,p3768-0000+p3767-0005-super`, but Jetson.GPIO
+   2.1.7 (apt `python3-jetson-gpio`) only lists `nvidia,p3768-0000+p3767-0005` — the **`-super`**
+   suffix on the Orin Nano Super breaks its exact-match lookup, so `get_model()` raises
+   "Could not determine Jetson model" (`gpio.py:69`). `main.py` now sets
+   `JETSON_MODEL_NAME=JETSON_ORIN_NANO` before the import, which is Jetson.GPIO's own documented
+   override. Override it in `/etc/deerkha/device.env` for a board that needs a different value.
+
+Blocker 2 hits `visionlogix` too, so the hand-run legacy script never fired GPIO either — "the
+standalone works" meant *the USB relay* works. Do not read it as evidence the GPIO path is fine.
+
+`local-deploy.sh` / `deploy.sh` only stage code and swap the symlink; group membership comes from
+`sudo bash deploy/provision.sh`. Group changes need a service restart (systemd re-resolves
+supplementary groups at exec) — reboot if in doubt. Then confirm:
+
+```bash
+id deerkha | grep -o gpio
+sudo -u deerkha /opt/deerkha/venv/bin/python3 -c "import Jetson.GPIO; print('ok')"
+grep -aiE "relay|GPIO" /var/log/deerkha/deerkha.log | tail
+```
+
+Expect `GPIO relay ready on pins 11/13` **and** `USB relay ready on /dev/ttyUSB0`. Until then the
+failure is silent by design of the old code: `_set_relays_gpio()` returned False with no log once
+`_gpio_ready` was False, and in `relay_mode=both` `set_relays()` returns `gpio or usb`, so the
+working USB relay masked it completely. That is now an explicit error at init, and the heartbeat
+carries `relay=<mode> gpio:<ok|down|-> usb:<...>` into `cfg_device_status.notes`.
+
 **Server (on the VPS):**
 
 ```bash

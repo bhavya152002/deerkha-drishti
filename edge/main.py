@@ -35,10 +35,10 @@ os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
 
 # ---- LOGGING FIRST -----------------------------------------------------------
 # .env then log_setup, BOTH before any pipeline import. Two reasons:
-#   1. trigger_jetson_3 runs init_relay() at IMPORT time (below), so its "relay
-#      ready" / "relay init failed" lines -- the exact evidence you need when the
-#      deterrent doesn't fire -- are emitted before any later logging config
-#      would exist. They must land in the file.
+#   1. deterrence.init_hardware() runs a few lines after the config snapshot is
+#      taken (below), so its "relay ready" / "relay init failed" lines -- the
+#      exact evidence you need when the deterrent doesn't fire -- are emitted
+#      before any later logging config would exist. They must land in the file.
 #   2. log_setup reads LOG_LEVEL/LOG_DIR from the environment, so .env has to be
 #      loaded first for those knobs to work.
 from dotenv import load_dotenv
@@ -70,6 +70,25 @@ from PIL import Image
 from rfdetr_trt import RFDETR_TRT
 from clip_trt import CLIPImageEncoderTRT
 from gst_camera_stream_jetson import GstCameraStream
+# MUST precede the trigger_jetson_3 import: that module imports Jetson.GPIO at
+# ITS import, and Jetson.GPIO resolves the board ONCE, at import, from
+# /proc/device-tree/compatible.
+#
+# This board reports  nvidia,p3768-0000+p3767-0005-super
+# Jetson.GPIO 2.1.7 knows nvidia,p3768-0000+p3767-0005      (no "-super")
+#
+# The lookup is an exact match, so the Orin Nano *Super* raises "Could not
+# determine Jetson model" at import -- _GPIO_AVAILABLE goes False and the GPIO
+# relay is skipped for the whole process lifetime. Confirmed on jetson-forest-01
+# (JetPack R36.4.7) on 2026-08-01, where it had never once fired.
+#
+# JETSON_MODEL_NAME is Jetson.GPIO's own documented override (gpio_pin_data.py,
+# get_model()). JETSON_ORIN_NANO and JETSON_ORIN_NX share one pin table
+# (JETSON_ORIN_NX_PIN_DEFS), so this is correct for both. setdefault, not
+# assignment: /etc/deerkha/device.env still wins on a board that needs another
+# value, and .env is already loaded above.
+os.environ.setdefault("JETSON_MODEL_NAME", "JETSON_ORIN_NANO")
+
 import trigger_jetson_3 as deterrence
 
 def _require_env(name):
@@ -130,6 +149,17 @@ def _cfg():
     return STORE.snapshot
 
 _boot_cfg = _cfg()
+
+# Deterrence hardware, FIRST -- before the TensorRT engines, the cameras or any
+# thread that could produce a detection. init_hardware() binds the restart-class
+# relay settings (mode, GPIO pins, USB port, on/off commands) from this snapshot
+# and only then opens the backends, which is why the module no longer does it at
+# import: at import time config_client has not been imported yet, so there is
+# nothing to configure from and every one of those settings was hardcoded.
+try:
+    deterrence.init_hardware(_boot_cfg["deterrence"])
+except Exception:
+    log.exception("[DETERRENCE] hardware init FAILED -- the deterrent will not fire")
 
 # ---- static (restart-class) binds: fixed for the process lifetime ----
 _CAMS_CFG     = _boot_cfg["cameras"]
@@ -1860,6 +1890,14 @@ def _status_notes():
         try:
             st = os.statvfs(STORAGE_ROOT)
             parts.append(f"freeGB={(st.f_bavail * st.f_frsize) // (1024**3)}")
+        except Exception:
+            pass
+        # Relay backend health. In RELAY_MODE='both' a dead backend is otherwise
+        # invisible at runtime -- set_relays() returns gpio_result or usb_result,
+        # so one working relay masks the other and the box looks fine while half
+        # the deterrent never fires.
+        try:
+            parts.append(deterrence.relay_health())
         except Exception:
             pass
         parts.append(_CLEANUP_STATUS)

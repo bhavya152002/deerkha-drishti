@@ -31,9 +31,16 @@ if ! id -u "$SVC_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir /home/$SVC_USER --shell /bin/bash "$SVC_USER"
 fi
 # video/render: NVDEC + GPU access. dialout: the USB relay on /dev/ttyUSB0.
-# audio: deterrence playback. Without these the pipeline starts and then fails
+# audio: deterrence playback. gpio: /dev/gpiochip* is root:gpio on JetPack, so
+# WITHOUT it Jetson.GPIO's setup() raises PermissionError as this user and the
+# GPIO relay silently never fires -- while the USB relay keeps working, which
+# makes the box look healthy. Without these the pipeline starts and then fails
 # in confusing ways at the first camera or the first deterrence trigger.
-usermod -aG video,render,dialout,audio "$SVC_USER"
+#
+# The gpio group is created by the jetson-gpio package's postinstall, which may
+# not have run on a stock image, so create it first rather than let usermod fail.
+groupadd -f gpio
+usermod -aG video,render,dialout,audio,gpio "$SVC_USER"
 
 echo "==> ssh access for the service user"
 # deploy.sh connects to this box AS $SVC_USER with BatchMode=yes, so no password
@@ -118,9 +125,35 @@ fi
 # python-dotenv and open_clip_torch are imported by edge/main.py -- omitting
 # them means the pipeline dies at import and systemd crash-loops the unit with
 # a bare ModuleNotFoundError.
+#
+# Jetson.GPIO is deliberately NOT here. JetPack ships it as the apt package
+# python3-jetson-gpio (2.1.7) in /usr/lib/python3/dist-packages, which the venv
+# already sees via --system-site-packages. Pip-installing it would SHADOW the
+# board-matched apt build with a PyPI one.
 "$ROOT/venv/bin/pip" install -q \
     requests sqlalchemy psycopg2-binary numpy pygame pyserial \
     python-dotenv pillow
+
+echo "==> deterrence GPIO check"
+# Verified on jetson-forest-01 (2026-08-01): both of these must hold or the GPIO
+# relay silently never fires while the USB relay keeps working, which makes the
+# box look healthy. See main.py for the JETSON_MODEL_NAME default.
+if ! sudo -u "$SVC_USER" env JETSON_MODEL_NAME="${JETSON_MODEL_NAME:-JETSON_ORIN_NANO}" \
+      "$ROOT/venv/bin/python3" -c "import Jetson.GPIO" 2>/dev/null; then
+  echo "    WARN: the service user still cannot import Jetson.GPIO."
+  echo "          Reproduce, and read the exception -- it distinguishes the two causes:"
+  echo "            sudo -u $SVC_USER $ROOT/venv/bin/python3 -c 'import Jetson.GPIO'"
+  echo "          'permissions ... /dev/gpiochip0' -> the gpio group did not take"
+  echo "                                              effect yet; reboot or re-login."
+  echo "          'Could not determine Jetson model' -> this board's compatible"
+  echo "                                                string is not in the installed"
+  echo "                                                Jetson.GPIO. Compare:"
+  echo "            cat /proc/device-tree/compatible | tr '\\0' '\\n' | head -1"
+  echo "            grep -n p3767 /usr/lib/python3/dist-packages/Jetson/GPIO/gpio_pin_data.py"
+  echo "          and set JETSON_MODEL_NAME in /etc/deerkha/device.env to override."
+else
+  echo "    ok: $SVC_USER can import Jetson.GPIO"
+fi
 
 # open_clip_torch DEPENDS ON torch AND torchvision. Installing it normally makes
 # pip fetch the PyPI wheels, which are built against a newer CUDA runtime than

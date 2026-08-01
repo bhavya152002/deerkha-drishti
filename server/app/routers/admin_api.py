@@ -486,6 +486,20 @@ DETER_GLOBAL_FIELDS = {
     "blink_total_duration", "blink_active_phase", "blink_rest_phase", "blink_interval",
 }
 
+# Bound once by the edge's deterrence.init_hardware(): the GPIO pins are already
+# exported and the serial port already open, so these cannot be swapped under a
+# running blink loop. Changing one has to bounce the process, or the box keeps
+# running the old value -- which is precisely the bug this set exists to close:
+# a device set to 'gpio' went on firing the USB relay forever.
+#
+# Everything else in DETER_GLOBAL_FIELDS (audio_playback_mode, blink_*) is
+# genuinely hot -- the audio and blink loops re-read it each iteration -- so it
+# must NOT land here, or every timing tweak would reboot the box.
+DETER_RESTART_FIELDS = {
+    "relay_mode", "relay_ch1_pin", "relay_ch2_pin", "relay_active_low",
+    "usb_relay_port", "usb_relay_baud", "usb_on_cmd_hex", "usb_off_cmd_hex",
+}
+
 
 @router.get("/devices/{device_id}/deterrence")
 def get_deterrence(device_id: str, admin: str = Depends(require_admin), db: Session = Depends(get_db)):
@@ -504,10 +518,19 @@ async def put_deterrence_global(device_id: str, request: Request, admin: str = D
         g = models.DeterrenceGlobal(device_id=device_id)
         db.add(g)
     body = await request.json()
+    # Compare VALUES, not merely which keys were submitted: the page posts every
+    # field on each save, so keying off the diff would turn a blink-timing tweak
+    # into a device reboot.
+    before = {k: getattr(g, k, None) for k in DETER_RESTART_FIELDS}
     diff = _apply(g, body, DETER_GLOBAL_FIELDS)
+    restart = any(getattr(g, k, None) != before[k] for k in DETER_RESTART_FIELDS)
+    if restart:
+        dev = db.get(models.Device, device_id)
+        if dev:
+            dev.restart_required = True
     db.commit()
     v = bump_and_audit(db, device_id, actor=admin, table_name="cfg_deterrence_global", row_pk=device_id, action="update", diff=diff)
-    return {"ok": True, "config_version": v}
+    return {"ok": True, "config_version": v, "restart_required": restart}
 
 
 @router.put("/devices/{device_id}/deterrence/targets/{class_name}")
