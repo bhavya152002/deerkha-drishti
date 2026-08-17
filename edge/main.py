@@ -1214,7 +1214,8 @@ class CameraStream:
             annotated = (self._last_annotated if self._last_annotated is not None else ai_input.copy())
 
             roi_on = is_roi_active()
-            if roi_on:
+            # Same 0-row polygon guard as the inference loop -- see the note there.
+            if roi_on and len(self.roi_polygon) >= 3:
                 cv2.polylines(res_small, [(self.roi_polygon * [W/DETECTION_RES[0], H/DETECTION_RES[1]]).astype(int)], True, (0, 165, 255), 1)
 
             if self.ignore_zone_polys_detres:
@@ -1335,7 +1336,14 @@ class CameraStream:
             annotated = ai_input.copy()
             roi_on = is_roi_active()
 
-            if roi_on:
+            # A camera with no ROI drawn gets a 0-row polygon (_build_roi_structures),
+            # and cv2.fillPoly SEGFAULTS on one -- it does not raise, so there is
+            # nothing to catch and the whole process dies with it. is_roi_active()
+            # is a night-window check, not a per-camera one, so every camera reaches
+            # here once roi_start_hour passes. Skipping the draw costs nothing:
+            # detection filters on self.roi_mask, which is already full-frame
+            # permissive for exactly these cameras.
+            if roi_on and len(self.roi_polygon) >= 3:
                 roi_ov = annotated.copy()
                 cv2.fillPoly(roi_ov, [self.roi_polygon], (0, 165, 255))
                 cv2.addWeighted(roi_ov, 0.08, annotated, 0.92, 0, annotated)
